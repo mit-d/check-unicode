@@ -1,0 +1,15 @@
+- id: check-unicode
+  name: Check for uncommon Unicode characters
+  description:
+    Detect non-ASCII, dangerous invisible Unicode, and copy-paste artifacts
+  entry: check-unicode
+  language: python
+  types: [text]
+
+- id: fix-unicode
+  name: Fix common Unicode characters
+  description:
+    Replace smart quotes, em dashes, fancy spaces with ASCII equivalents
+  entry: check-unicode --fix
+  language: python
+  types: [text]

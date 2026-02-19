@@ -1,0 +1,4 @@
+Temperature: 72°F
+© 2026 Company
+Price: €100
+Normal ASCII line
