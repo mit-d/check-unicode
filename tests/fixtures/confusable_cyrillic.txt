@@ -1,0 +1,2 @@
+if аccess_level == "admin":
+    grant_privileges()

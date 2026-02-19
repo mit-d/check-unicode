@@ -5,7 +5,9 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from check_unicode.checker import AllowConfig, check_file
+import pytest
+
+from check_unicode.checker import AllowConfig, check_confusables, check_file
 from check_unicode.fixer import fix_file
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -87,3 +89,98 @@ class TestMixedAllowedWithConfig:
         codepoints = {f.codepoint for f in findings}
         assert 0x00B0 not in codepoints
         assert 0x20AC in codepoints  # euro not allowed
+
+
+# ---------------------------------------------------------------------------
+# Classic literature fixtures (see tests/fixtures/LICENSES.fixtures)
+# ---------------------------------------------------------------------------
+
+# (fixture_stem, scripts needed to cover all non-ASCII characters)
+CLASSIC_TEXTS: list[tuple[str, frozenset[str]]] = [
+    ("classic_arabic", frozenset({"Arabic", "Common", "Inherited"})),
+    ("classic_chinese", frozenset({"Han", "Common"})),
+    ("classic_cyrillic", frozenset({"Cyrillic"})),
+    ("classic_devanagari", frozenset({"Devanagari", "Common", "Inherited"})),
+    ("classic_greek", frozenset({"Greek", "Common"})),
+    ("classic_hebrew", frozenset({"Hebrew", "Inherited"})),
+    ("classic_japanese", frozenset({"Han", "Hiragana", "Katakana", "Common"})),
+    ("classic_korean", frozenset({"Hangul", "Han", "Inherited"})),
+]
+CLASSIC_IDS = [t[0] for t in CLASSIC_TEXTS]
+
+# Fixtures that legitimately contain DANGEROUS_INVISIBLE characters:
+#   devanagari -- zero-width joiner (U+200D) for ligature formation
+_HAS_DANGEROUS = {"classic_devanagari"}
+
+# Fixtures where --allow-printable leaves non-printable residue:
+#   arabic     -- U+2009 THIN SPACE (1x)
+#   devanagari -- U+200D ZERO WIDTH JOINER (1x, dangerous)
+#   japanese   -- U+3000 IDEOGRAPHIC SPACE (23x)
+_ALLOW_PRINTABLE_RESIDUE = {
+    "classic_arabic",
+    "classic_devanagari",
+    "classic_japanese",
+}
+
+
+class TestClassicTexts:
+    """Integration tests for classic literature fixtures.
+
+    Real-world multilingual texts validating --allow-printable,
+    --allow-script, and --check-confusables against authentic content.
+    """
+
+    @pytest.mark.parametrize("name", CLASSIC_IDS)
+    def test_has_non_ascii_findings(self, name: str) -> None:
+        """Classic texts contain non-ASCII characters."""
+        findings = check_file(FIXTURES / f"{name}.txt")
+        assert len(findings) > 0
+
+    @pytest.mark.parametrize("name", CLASSIC_IDS)
+    def test_no_dangerous(self, name: str) -> None:
+        """Most classic literature has no dangerous invisible characters."""
+        findings = check_file(FIXTURES / f"{name}.txt")
+        dangerous = [f for f in findings if f.dangerous]
+        if name not in _HAS_DANGEROUS:
+            assert dangerous == []
+        else:
+            # Dangerous chars exist but are legitimate in context
+            assert len(dangerous) > 0
+
+    @pytest.mark.parametrize("name", CLASSIC_IDS)
+    def test_allow_printable(self, name: str) -> None:
+        """--allow-printable covers all printable non-ASCII characters."""
+        allow = AllowConfig(printable=True)
+        findings = check_file(FIXTURES / f"{name}.txt", allow)
+        if name not in _ALLOW_PRINTABLE_RESIDUE:
+            assert findings == []
+        else:
+            # Remaining findings are non-printable spaces or
+            # dangerous invisibles -- not a tool bug.
+            for f in findings:
+                assert not chr(f.codepoint).isprintable()
+
+    @pytest.mark.parametrize(("name", "scripts"), CLASSIC_TEXTS)
+    def test_allow_script(self, name: str, scripts: frozenset[str]) -> None:
+        """--allow-script with the correct scripts covers all non-ASCII.
+
+        Dangerous invisible characters (bidi controls, ZWS, ZWJ) are
+        never suppressed by --allow-script, so they remain as findings.
+        """
+        allow = AllowConfig(scripts=scripts)
+        findings = check_file(FIXTURES / f"{name}.txt", allow)
+        non_dangerous = [f for f in findings if not f.dangerous]
+        assert non_dangerous == [], (
+            f"Unmatched scripts: "
+            f"{sorted({f.name.split()[0] for f in non_dangerous[:20]})}"
+        )
+
+    @pytest.mark.parametrize("name", CLASSIC_IDS)
+    def test_confusables(self, name: str) -> None:
+        """Pure single-script content produces no confusable findings.
+
+        All classic fixtures now use public-domain source text without
+        Project Gutenberg headers, so no Latin mixing occurs.
+        """
+        findings = check_confusables(FIXTURES / f"{name}.txt")
+        assert findings == [], f"Unexpected confusables: {findings[:5]}"

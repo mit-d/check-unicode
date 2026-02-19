@@ -117,6 +117,53 @@ class TestAllowList:
         assert not any(f.codepoint == 0x20AC for f in findings)
 
 
+class TestAllowPrintable:
+    """Tests for --allow-printable filtering."""
+
+    def test_printable_suppresses_smart_quotes(self) -> None:
+        """Printable mode suppresses smart quote findings."""
+        allow = AllowConfig(printable=True)
+        findings = check_file(FIXTURES / "smart_quotes.txt", allow)
+        assert findings == []
+
+    def test_printable_still_flags_dangerous(self) -> None:
+        """Printable mode does not suppress dangerous invisible characters."""
+        allow = AllowConfig(printable=True)
+        findings = check_file(FIXTURES / "bidi_attack.txt", allow)
+        dangerous = [f for f in findings if f.dangerous]
+        assert len(dangerous) > 0
+
+    def test_printable_suppresses_i18n(self) -> None:
+        """Printable mode suppresses all printable i18n characters."""
+        allow = AllowConfig(printable=True)
+        findings = check_file(FIXTURES / "printable_i18n.txt", allow)
+        assert findings == []
+
+    def test_printable_off_flags_i18n(self) -> None:
+        """Without printable mode, i18n characters are flagged."""
+        findings = check_file(FIXTURES / "printable_i18n.txt")
+        assert len(findings) > 0
+
+
+class TestAllowScript:
+    """Tests for --allow-script filtering."""
+
+    def test_allow_latin_suppresses_accented(self) -> None:
+        """Allowing Latin script suppresses accented Latin characters."""
+        allow = AllowConfig(scripts=frozenset(["Latin"]))
+        findings = check_file(FIXTURES / "printable_i18n.txt", allow)
+        # Accented chars suppressed, but CJK/Arabic still flagged
+        assert not any(f.name.startswith("LATIN") for f in findings)
+        assert len(findings) > 0
+
+    def test_allow_script_still_flags_dangerous(self) -> None:
+        """Script allow-list does not suppress dangerous characters."""
+        allow = AllowConfig(scripts=frozenset(["Latin", "Common"]))
+        findings = check_file(FIXTURES / "bidi_attack.txt", allow)
+        dangerous = [f for f in findings if f.dangerous]
+        assert len(dangerous) > 0
+
+
 class TestBOM:
     """Tests for byte-order mark handling."""
 

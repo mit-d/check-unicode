@@ -7,7 +7,13 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+      - id: check-toml
+      - id: check-ast
       - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: debug-statements
+      - id: detect-private-key
       - id: mixed-line-ending
         args: [--fix=lf]
 
@@ -23,7 +29,7 @@ repos:
       - id: markdownlint-cli2
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.1
+    rev: v0.15.2
     hooks:
       - id: ruff
         args: [--fix]
@@ -35,6 +41,21 @@ repos:
       - id: mypy
         args: [--strict, src/]
         pass_filenames: false
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.25
+    hooks:
+      - id: validate-pyproject
+
+  - repo: https://github.com/tox-dev/pyproject-fmt
+    rev: v2.16.1
+    hooks:
+      - id: pyproject-fmt
 
   - repo: local
     hooks:

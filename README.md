@@ -36,17 +36,20 @@ check-unicode path/to/file.txt
 check-unicode [OPTIONS] [FILES...]
 ```
 
-| Flag                   | Description                                           | Default       |
-| ---------------------- | ----------------------------------------------------- | ------------- |
-| `--fix`                | Replace known offenders with ASCII, exit 1 if changed | off           |
-| `--allow-range RANGE`  | Allow a Unicode range (e.g. `U+00A0-U+00FF`). Repeat. | none          |
-| `--allow-codepoint CP` | Allow codepoints (e.g. `U+00B0`). Repeat/comma-sep.   | none          |
-| `--allow-category CAT` | Allow Unicode category (e.g. `Sc`). Repeatable.       | none          |
-| `--severity LEVEL`     | `error` (exit 1) or `warning` (print, exit 0)         | `error`       |
-| `--no-color`           | Disable ANSI color                                    | auto-detect   |
-| `--config FILE`        | Path to TOML config                                   | auto-discover |
-| `-q` / `--quiet`       | Summary only                                          | off           |
-| `-V` / `--version`     | Print version                                         |               |
+| Flag                    | Description                                           | Default       |
+| ----------------------- | ----------------------------------------------------- | ------------- |
+| `--fix`                 | Replace known offenders with ASCII, exit 1 if changed | off           |
+| `--allow-range RANGE`   | Allow a Unicode range (e.g. `U+00A0-U+00FF`). Repeat. | none          |
+| `--allow-codepoint CP`  | Allow codepoints (e.g. `U+00B0`). Repeat/comma-sep.   | none          |
+| `--allow-category CAT`  | Allow Unicode category (e.g. `Sc`). Repeatable.       | none          |
+| `--allow-printable`     | Allow all printable chars (only flag invisibles)      | off           |
+| `--allow-script SCRIPT` | Allow Unicode script (e.g. `Latin`). Repeatable.      | none          |
+| `--check-confusables`   | Detect mixed-script homoglyph/confusable characters   | off           |
+| `--severity LEVEL`      | `error` (exit 1) or `warning` (print, exit 0)         | `error`       |
+| `--no-color`            | Disable ANSI color                                    | auto-detect   |
+| `--config FILE`         | Path to TOML config                                   | auto-discover |
+| `-q` / `--quiet`        | Summary only                                          | off           |
+| `-V` / `--version`      | Print version                                         |               |
 
 ## What it catches
 
@@ -58,6 +61,10 @@ check-unicode [OPTIONS] [FILES...]
   - Bidi control (Trojan Source CVE-2021-42574): U+202A-202E, U+2066-2069
   - Zero-width: U+200B-200F, U+FEFF (mid-file), U+2060-2064, U+180E
   - Replacement character: U+FFFD
+- **Confusable homoglyphs** (with `--check-confusables`):
+  - Mixed-script identifiers where minority-script chars look like Latin
+  - Cyrillic/Greek/Armenian letters that visually resemble Latin letters
+  - e.g. Cyrillic `a` (U+0430) mixed with Latin `ccess_level`
 
 ## Auto-fix
 
@@ -83,6 +90,9 @@ Create `.check-unicode.toml` or add to `pyproject.toml`:
 allow-codepoints = ["U+00B0", "U+2192"]
 allow-ranges = ["U+00A0-U+00FF"]
 allow-categories = ["Sc"]
+allow-printable = true
+allow-scripts = ["Latin", "Cyrillic"]
+check-confusables = true
 severity = "error"
 ```
 

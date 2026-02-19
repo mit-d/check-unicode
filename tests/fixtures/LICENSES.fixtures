@@ -1,0 +1,52 @@
+Classic text fixtures -- sources and licenses
+=============================================
+
+All classic fixtures contain ~100-200 lines of public-domain source text.
+
+classic_arabic.txt
+  Quran (Uthmani script, full tashkeel)
+  amrayn/quran-text on GitHub
+  https://github.com/amrayn/quran-text
+  License: Public domain (religious text)
+
+classic_chinese.txt
+  Laozi, Dao De Jing (道德經), Wang Bi edition (~300 CE, text ~500 BCE)
+  Chinese Wikisource (text itself public domain by age)
+  https://zh.wikisource.org/wiki/道德經_(王弼本)
+  License: Public domain (author d. ~500 BCE)
+
+classic_cyrillic.txt
+  Alexander Pushkin, selected lyric poems (1820s-1830s)
+  F0rgenet/rufish corpus on GitHub (text sourced from Pushkin's works)
+  https://github.com/F0rgenet/rufish
+  License: Public domain (author d. 1837)
+
+classic_devanagari.txt
+  Bhagavad Gita (श्रीमद्भगवद्गीता)
+  sanskritdocuments.org
+  https://sanskritdocuments.org/sanskrit/bhagavadgita/
+  License: Public domain (see sanskritdocuments.org/license)
+
+classic_greek.txt
+  Homer, Iliad (ancient Greek text)
+  Perseus Digital Library, Tufts University
+  https://www.perseus.tufts.edu/hopper/text?doc=Perseus:text:1999.01.0133
+  License: Public domain (author ~8th century BCE)
+
+classic_hebrew.txt
+  Genesis (בראשית), Westminster Leningrad Codex
+  openscriptures/morphhb on GitHub
+  https://github.com/openscriptures/morphhb
+  License: CC BY 4.0 (markup); text itself public domain (ancient religious text)
+
+classic_japanese.txt
+  Natsume Soseki, Botchan (坊っちゃん), 1906
+  Aozora Bunko (青空文庫)
+  https://www.aozora.gr.jp/cards/000148/card752.html
+  License: Public domain (author d. 1916; PD in Japan)
+
+classic_korean.txt
+  Hunminjeongeum (훈민정음), 1446
+  Korean Wikisource (text itself public domain by age, 1446)
+  https://ko.wikisource.org/wiki/훈민정음
+  License: Public domain (author King Sejong, d. 1450)
