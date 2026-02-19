@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 # ANSI escape codes
 _RED = "\033[31m"
 _BOLD_RED = "\033[1;31m"
+_YELLOW = "\033[33m"
 _DIM = "\033[2m"
 _RESET = "\033[0m"
 
@@ -48,12 +49,20 @@ def _format_finding(f: Finding, *, color: bool) -> str:
         if f.dangerous:
             prefix = f"{_BOLD_RED}[DANGEROUS]{_RESET} "
             cp_part = f"{_BOLD_RED}{cp_str}{_RESET}"
+        elif f.confusable is not None:
+            prefix = f"{_YELLOW}[CONFUSABLE]{_RESET} "
+            cp_part = f"{_YELLOW}{cp_str}{_RESET}"
         else:
             prefix = ""
             cp_part = f"{_RED}{cp_str}{_RESET}"
         cat_part = f"{_DIM}[{f.category}]{_RESET}"
     else:
-        prefix = "[DANGEROUS] " if f.dangerous else ""
+        if f.dangerous:
+            prefix = "[DANGEROUS] "
+        elif f.confusable is not None:
+            prefix = f"[CONFUSABLE: looks like '{f.confusable}'] "
+        else:
+            prefix = ""
         cp_part = cp_str
         cat_part = f"[{f.category}]"
     return f"{f.file}:{f.line}:{f.col}: {prefix}{cp_part} {f.name} {cat_part}"
@@ -76,6 +85,28 @@ def _context_line(finding: Finding, file_lines: list[str]) -> str:
         else:
             caret_pos += 1
     return f"  {rendered}\n  {' ' * caret_pos}^"
+
+
+def _print_summary(findings: list[Finding]) -> None:
+    """Print a summary line of finding counts to stderr."""
+    n_files = len({f.file for f in findings})
+    n_fixable = sum(1 for f in findings if f.fixable)
+    n_dangerous = sum(1 for f in findings if f.dangerous)
+    n_confusable = sum(1 for f in findings if f.confusable is not None)
+    parts = [
+        f"Found {len(findings)} non-ASCII character{'s' if len(findings) != 1 else ''}"
+    ]
+    parts.append(f"in {n_files} file{'s' if n_files != 1 else ''}")
+    extras = []
+    if n_fixable:
+        extras.append(f"{n_fixable} fixable")
+    if n_dangerous:
+        extras.append(f"{n_dangerous} dangerous")
+    if n_confusable:
+        extras.append(f"{n_confusable} confusable")
+    if extras:
+        parts.append(f"({', '.join(extras)})")
+    sys.stderr.write(" ".join(parts) + "\n")
 
 
 def print_findings(
@@ -107,19 +138,4 @@ def print_findings(
                 if ctx:
                     sys.stderr.write(ctx + "\n")
 
-    # Summary
-    n_files = len({f.file for f in findings})
-    n_fixable = sum(1 for f in findings if f.fixable)
-    n_dangerous = sum(1 for f in findings if f.dangerous)
-    parts = [
-        f"Found {len(findings)} non-ASCII character{'s' if len(findings) != 1 else ''}"
-    ]
-    parts.append(f"in {n_files} file{'s' if n_files != 1 else ''}")
-    extras = []
-    if n_fixable:
-        extras.append(f"{n_fixable} fixable")
-    if n_dangerous:
-        extras.append(f"{n_dangerous} dangerous")
-    if extras:
-        parts.append(f"({', '.join(extras)})")
-    sys.stderr.write(" ".join(parts) + "\n")
+    _print_summary(findings)

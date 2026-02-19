@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import sys
 import tomllib
 from pathlib import Path
 from typing import Any
 
 from check_unicode import __version__
-from check_unicode.checker import AllowConfig, Finding, check_file
+from check_unicode.checker import AllowConfig, Finding, check_confusables, check_file
 from check_unicode.fixer import fix_file
 from check_unicode.output import print_findings
 
@@ -72,7 +73,7 @@ def _load_config(path: str | None) -> dict[str, Any]:
 
 def _allow_from_config(
     config: dict[str, Any],
-) -> tuple[set[int], list[tuple[int, int]], set[str]]:
+) -> tuple[set[int], list[tuple[int, int]], set[str], bool, set[str]]:
     """Extract allow-lists from a parsed config dictionary."""
     codepoints: set[int] = {
         _parse_codepoint(cp_str) for cp_str in config.get("allow-codepoints", [])
@@ -81,7 +82,9 @@ def _allow_from_config(
         _parse_range(r_str) for r_str in config.get("allow-ranges", [])
     ]
     categories: set[str] = set(config.get("allow-categories", []))
-    return codepoints, ranges, categories
+    printable: bool = config.get("allow-printable", False)
+    scripts: set[str] = {s.title() for s in config.get("allow-scripts", [])}
+    return codepoints, ranges, categories, printable, scripts
 
 
 def _build_allow_config(
@@ -90,7 +93,7 @@ def _build_allow_config(
 ) -> AllowConfig:
     """Merge CLI args and config file into an AllowConfig."""
     # Config file values
-    codepoints, ranges, categories = _allow_from_config(config)
+    codepoints, ranges, categories, printable, scripts = _allow_from_config(config)
 
     # CLI args (extend, don't replace)
     if args.allow_codepoint:
@@ -101,11 +104,17 @@ def _build_allow_config(
         ranges.extend(_parse_range(r_str) for r_str in args.allow_range)
     if args.allow_category:
         categories.update(args.allow_category)
+    if args.allow_printable:
+        printable = True
+    if args.allow_script:
+        scripts.update(s.title() for s in args.allow_script)
 
     return AllowConfig(
         codepoints=frozenset(codepoints),
         ranges=tuple(ranges),
         categories=frozenset(categories),
+        printable=printable,
+        scripts=frozenset(scripts),
     )
 
 
@@ -145,6 +154,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Allow Unicode category (e.g. Sc). Repeatable.",
     )
     parser.add_argument(
+        "--allow-printable",
+        action="store_true",
+        help="Allow all printable characters (only flag invisibles).",
+    )
+    parser.add_argument(
+        "--allow-script",
+        action="append",
+        metavar="SCRIPT",
+        help="Allow Unicode script (e.g. Latin, Cyrillic). Repeatable.",
+    )
+    parser.add_argument(
+        "--exclude-pattern",
+        action="append",
+        metavar="PATTERN",
+        help="Exclude files matching glob pattern (e.g. '*.min.js'). Repeatable.",
+    )
+    parser.add_argument(
+        "--check-confusables",
+        action="store_true",
+        help="Detect mixed-script homoglyph/confusable characters.",
+    )
+    parser.add_argument(
         "--severity",
         choices=["error", "warning"],
         default=None,
@@ -175,6 +206,44 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _is_excluded(filepath: str, patterns: list[str]) -> bool:
+    """Check whether a filepath matches any exclusion pattern.
+
+    Matches against both the full path and the basename, so
+    patterns like ``*.min.js`` and ``vendor/*.js`` both work.
+    """
+    name = Path(filepath).name
+    return any(
+        fnmatch.fnmatch(filepath, pat) or fnmatch.fnmatch(name, pat) for pat in patterns
+    )
+
+
+def _build_exclude_patterns(
+    args: argparse.Namespace,
+    config: dict[str, Any],
+) -> list[str]:
+    """Merge exclude patterns from CLI args and config file."""
+    patterns: list[str] = list(config.get("exclude-patterns", []))
+    if args.exclude_pattern:
+        patterns.extend(args.exclude_pattern)
+    return patterns
+
+
+def _scan_files(
+    files: list[str],
+    allow: AllowConfig,
+    *,
+    do_confusables: bool,
+) -> list[Finding]:
+    """Scan files for non-ASCII and (optionally) confusable characters."""
+    findings: list[Finding] = []
+    for filepath in files:
+        findings.extend(check_file(filepath, allow))
+        if do_confusables:
+            findings.extend(check_confusables(filepath))
+    return findings
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the check-unicode CLI."""
     parser = _build_parser()
@@ -186,28 +255,25 @@ def main(argv: list[str] | None = None) -> int:
     config = _load_config(args.config)
     severity = args.severity or config.get("severity", "error")
     allow = _build_allow_config(args, config)
+    do_confusables = args.check_confusables or config.get("check-confusables", False)
+
+    # Filter out excluded files
+    exclude_patterns = _build_exclude_patterns(args, config)
+    files = [f for f in args.files if not _is_excluded(f, exclude_patterns)]
+
+    if not files:
+        return 0
 
     # Fix mode
     if args.fix:
-        fixed_results = [fix_file(filepath) for filepath in args.files]
-        any_fixed = any(fixed_results)
-
-        # After fixing, still check for remaining issues
-        all_findings: list[Finding] = []
-        for filepath in args.files:
-            all_findings.extend(check_file(filepath, allow))
-
+        any_fixed = any(fix_file(filepath) for filepath in files)
+        all_findings = _scan_files(files, allow, do_confusables=do_confusables)
         if all_findings:
             print_findings(all_findings, no_color=args.no_color, quiet=args.quiet)
-        if any_fixed or all_findings:
-            return 1
-        return 0
+        return 1 if any_fixed or all_findings else 0
 
     # Check mode
-    all_findings = []
-    for filepath in args.files:
-        all_findings.extend(check_file(filepath, allow))
-
+    all_findings = _scan_files(files, allow, do_confusables=do_confusables)
     if all_findings:
         print_findings(all_findings, no_color=args.no_color, quiet=args.quiet)
         return 0 if severity == "warning" else 1

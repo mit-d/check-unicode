@@ -21,6 +21,7 @@ def fix_file(path: str | Path) -> bool:
     filepath = Path(path)
     try:
         original = filepath.read_text(encoding="utf-8")
+        orig_mode = filepath.stat().st_mode
     except (UnicodeDecodeError, OSError):
         return False
 
@@ -39,7 +40,7 @@ def fix_file(path: str | Path) -> bool:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(fixed)
         # Preserve original file permissions
-        tmp_path.chmod(filepath.stat().st_mode)
+        tmp_path.chmod(orig_mode)
         tmp_path.replace(filepath)
     except BaseException:
         # Clean up temp file on any failure

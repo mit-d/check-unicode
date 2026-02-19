@@ -1,65 +1,56 @@
 [build-system]
-requires = ["hatchling"]
 build-backend = "hatchling.build"
+requires = [ "hatchling" ]
 
 [project]
 name = "check-unicode"
-dynamic = ["version"]
 description = "Pre-commit hook to detect and fix non-ASCII Unicode characters"
 readme = "README.md"
+keywords = [ "linting", "pre-commit", "security", "trojan-source", "unicode" ]
 license = "MIT"
+authors = [ { name = "mit-d", email = "derekmttn@gmail.com" } ]
 requires-python = ">=3.11"
-authors = [{name = "mit-d", email = "derekmttn@gmail.com"}]
-keywords = ["pre-commit", "unicode", "linting", "security", "trojan-source"]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Environment :: Console",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "Topic :: Software Development :: Quality Assurance",
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Quality Assurance",
 ]
+dynamic = [ "version" ]
+optional-dependencies.dev = [ "mypy", "pytest", "pytest-cov", "ruff" ]
+urls.Issues = "https://github.com/mit-d/check-unicode/issues"
+urls.Repository = "https://github.com/mit-d/check-unicode"
+scripts.check-unicode = "check_unicode.main:main"
 
-[project.urls]
-Repository = "https://github.com/mit-d/check-unicode"
-Issues = "https://github.com/mit-d/check-unicode/issues"
-
-[project.scripts]
-check-unicode = "check_unicode.main:main"
-
-[project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "mypy", "ruff"]
-
-[tool.hatch.version]
-path = "src/check_unicode/__init__.py"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/check_unicode"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.hatch]
+build.targets.wheel.packages = [ "src/check_unicode" ]
+version.path = "src/check_unicode/__init__.py"
 
 [tool.ruff]
 target-version = "py311"
-
-[tool.ruff.lint]
-select = ["ALL"]
-ignore = [
-    "COM812",  # trailing comma -- conflicts with formatter
-    "ISC001",  # single-line implicit string concat -- conflicts with formatter
-    "D203",    # incompatible with D211 (no-blank-line-before-class)
-    "D213",    # incompatible with D212 (multi-line-summary-first-line)
+lint.select = [ "ALL" ]
+lint.ignore = [
+  "COM812", # trailing comma -- conflicts with formatter
+  "D203",   # incompatible with D211 (no-blank-line-before-class)
+  "D213",   # incompatible with D212 (multi-line-summary-first-line)
+  "ISC001", # single-line implicit string concat -- conflicts with formatter
+]
+lint.per-file-ignores."tests/**" = [
+  "PLR2004", # magic values in test assertions are readable
+  "S101",    # assert is fine in tests
+]
+lint.per-file-ignores."tests/fixtures/**" = [
+  "ALL", # fixture files are intentionally non-conformant
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = [
-    "S101",    # assert is fine in tests
-    "PLR2004", # magic values in test assertions are readable
-]
+[tool.pytest]
+ini_options.testpaths = [ "tests" ]
 
 [tool.mypy]
 python_version = "3.11"

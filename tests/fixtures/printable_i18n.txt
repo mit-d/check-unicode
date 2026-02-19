@@ -1,0 +1,4 @@
+Accented Latin: café, naïve, résumé
+CJK characters: 漢字テスト
+Arabic text: مرحبا
+Mixed: price is €100, temp 72°F

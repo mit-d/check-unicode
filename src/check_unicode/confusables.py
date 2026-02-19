@@ -1,0 +1,59 @@
+"""Security-critical confusable/homoglyph mappings.
+
+Curated from Unicode confusables.txt (Unicode License v3, OSI-approved).
+Focused on non-Latin characters that look like Latin letters --
+the most common vector for homoglyph attacks in source code.
+"""
+
+# Maps non-Latin codepoints to the Latin letter they visually resemble.
+CONFUSABLES: dict[int, str] = {
+    # Cyrillic -> Latin (lowercase)
+    0x0430: "a",  # CYRILLIC SMALL LETTER A
+    0x0441: "c",  # CYRILLIC SMALL LETTER ES
+    0x0435: "e",  # CYRILLIC SMALL LETTER IE
+    0x04BB: "h",  # CYRILLIC SMALL LETTER SHHA
+    0x0456: "i",  # CYRILLIC SMALL LETTER BYELORUSSIAN-UKRAINIAN I
+    0x0458: "j",  # CYRILLIC SMALL LETTER JE
+    0x043E: "o",  # CYRILLIC SMALL LETTER O
+    0x0440: "p",  # CYRILLIC SMALL LETTER ER
+    0x0455: "s",  # CYRILLIC SMALL LETTER DZE
+    0x0445: "x",  # CYRILLIC SMALL LETTER HA
+    0x0443: "y",  # CYRILLIC SMALL LETTER U
+    # Cyrillic -> Latin (uppercase)
+    0x0410: "A",  # CYRILLIC CAPITAL LETTER A
+    0x0412: "B",  # CYRILLIC CAPITAL LETTER VE
+    0x0421: "C",  # CYRILLIC CAPITAL LETTER ES
+    0x0415: "E",  # CYRILLIC CAPITAL LETTER IE
+    0x041D: "H",  # CYRILLIC CAPITAL LETTER EN
+    0x0406: "I",  # CYRILLIC CAPITAL LETTER BYELORUSSIAN-UKRAINIAN I
+    0x0408: "J",  # CYRILLIC CAPITAL LETTER JE
+    0x041A: "K",  # CYRILLIC CAPITAL LETTER KA
+    0x041C: "M",  # CYRILLIC CAPITAL LETTER EM
+    0x041E: "O",  # CYRILLIC CAPITAL LETTER O
+    0x0420: "P",  # CYRILLIC CAPITAL LETTER ER
+    0x0405: "S",  # CYRILLIC CAPITAL LETTER DZE
+    0x0422: "T",  # CYRILLIC CAPITAL LETTER TE
+    0x0425: "X",  # CYRILLIC CAPITAL LETTER HA
+    # Greek -> Latin
+    0x03BF: "o",  # GREEK SMALL LETTER OMICRON
+    0x03B1: "a",  # GREEK SMALL LETTER ALPHA (close but not exact)
+    0x03F2: "c",  # GREEK LUNATE SIGMA SYMBOL
+    0x0391: "A",  # GREEK CAPITAL LETTER ALPHA
+    0x0392: "B",  # GREEK CAPITAL LETTER BETA
+    0x0395: "E",  # GREEK CAPITAL LETTER EPSILON
+    0x0397: "H",  # GREEK CAPITAL LETTER ETA
+    0x0399: "I",  # GREEK CAPITAL LETTER IOTA
+    0x039A: "K",  # GREEK CAPITAL LETTER KAPPA
+    0x039C: "M",  # GREEK CAPITAL LETTER MU
+    0x039D: "N",  # GREEK CAPITAL LETTER NU
+    0x039F: "O",  # GREEK CAPITAL LETTER OMICRON
+    0x03A1: "P",  # GREEK CAPITAL LETTER RHO
+    0x03A4: "T",  # GREEK CAPITAL LETTER TAU
+    0x03A5: "Y",  # GREEK CAPITAL LETTER UPSILON
+    0x0396: "Z",  # GREEK CAPITAL LETTER ZETA
+    # Armenian -> Latin
+    0x0570: "h",  # ARMENIAN SMALL LETTER HO
+    0x0578: "n",  # ARMENIAN SMALL LETTER VO
+    0x0585: "o",  # ARMENIAN SMALL LETTER OH
+    0x0575: "u",  # ARMENIAN SMALL LETTER YI
+}

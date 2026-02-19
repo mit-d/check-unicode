@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from check_unicode.main import _parse_codepoint, _parse_range, main
+from check_unicode.main import _is_excluded, _parse_codepoint, _parse_range, main
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -110,6 +110,50 @@ class TestAllowFlags:
         )
 
 
+class TestAllowPrintableFlag:
+    """Tests for --allow-printable CLI flag."""
+
+    def test_allow_printable_suppresses_findings(self) -> None:
+        """--allow-printable allows all printable non-ASCII characters."""
+        assert main(["--allow-printable", str(FIXTURES / "smart_quotes.txt")]) == 0
+
+    def test_allow_printable_still_flags_dangerous(self) -> None:
+        """--allow-printable does not suppress dangerous characters."""
+        assert main(["--allow-printable", str(FIXTURES / "bidi_attack.txt")]) == 1
+
+    def test_allow_printable_i18n_fixture(self) -> None:
+        """--allow-printable passes on i18n fixture."""
+        assert main(["--allow-printable", str(FIXTURES / "printable_i18n.txt")]) == 0
+
+
+class TestAllowScriptFlag:
+    """Tests for --allow-script CLI flag."""
+
+    def test_allow_script_suppresses_findings(self, tmp_path: Path) -> None:
+        """--allow-script suppresses findings for that script."""
+        f = tmp_path / "cyrillic.txt"
+        f.write_text("\u0430\u0431\u0432\n", encoding="utf-8")  # U+0430-0432
+        assert main(["--allow-script", "Cyrillic", str(f)]) == 0
+
+    def test_allow_script_case_insensitive(self, tmp_path: Path) -> None:
+        """--allow-script normalizes to title case."""
+        f = tmp_path / "cyrillic.txt"
+        f.write_text("\u0430\u0431\u0432\n", encoding="utf-8")
+        assert main(["--allow-script", "cyrillic", str(f)]) == 0
+
+    def test_allow_script_repeatable(self, tmp_path: Path) -> None:
+        """--allow-script can be repeated for multiple scripts."""
+        f = tmp_path / "mixed.txt"
+        f.write_text("\u0430 \u03b1\n", encoding="utf-8")  # U+0430 U+03B1
+        assert (
+            main(["--allow-script", "Cyrillic", "--allow-script", "Greek", str(f)]) == 0
+        )
+
+    def test_allow_script_still_flags_dangerous(self) -> None:
+        """--allow-script does not suppress dangerous characters."""
+        assert main(["--allow-script", "Latin", str(FIXTURES / "bidi_attack.txt")]) == 1
+
+
 class TestConfigFile:
     """Tests for TOML configuration file loading."""
 
@@ -122,6 +166,26 @@ class TestConfigFile:
         )
         f = tmp_path / "test.txt"
         f.write_text("72\u00b0F \u00a9 \u20ac100\n", encoding="utf-8")
+        assert main(["--config", str(config), str(f)]) == 0
+
+
+class TestConfigPrintableAndScript:
+    """Tests for allow-printable and allow-scripts in TOML config."""
+
+    def test_config_allow_printable(self, tmp_path: Path) -> None:
+        """allow-printable = true in config works."""
+        config = tmp_path / "config.toml"
+        config.write_text("allow-printable = true\n", encoding="utf-8")
+        f = tmp_path / "test.txt"
+        f.write_text("caf\u00e9\n", encoding="utf-8")
+        assert main(["--config", str(config), str(f)]) == 0
+
+    def test_config_allow_scripts(self, tmp_path: Path) -> None:
+        """allow-scripts in config works."""
+        config = tmp_path / "config.toml"
+        config.write_text('allow-scripts = ["Cyrillic"]\n', encoding="utf-8")
+        f = tmp_path / "test.txt"
+        f.write_text("\u0430\u0431\u0432\n", encoding="utf-8")
         assert main(["--config", str(config), str(f)]) == 0
 
 
@@ -226,3 +290,136 @@ class TestConfigDiscovery:
         f.write_text("72\u00b0F\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
         assert main([str(f)]) == 0
+
+
+class TestExcludePattern:
+    """Tests for --exclude-pattern CLI flag."""
+
+    def test_exclude_pattern_skips_file(self) -> None:
+        """Excluded files are skipped entirely."""
+        assert (
+            main(
+                [
+                    "--exclude-pattern",
+                    "*.txt",
+                    str(FIXTURES / "smart_quotes.txt"),
+                ]
+            )
+            == 0
+        )
+
+    def test_exclude_pattern_keeps_non_matching(self) -> None:
+        """Non-matching files are still checked."""
+        assert (
+            main(
+                [
+                    "--exclude-pattern",
+                    "*.js",
+                    str(FIXTURES / "smart_quotes.txt"),
+                ]
+            )
+            == 1
+        )
+
+    def test_exclude_pattern_repeatable(self) -> None:
+        """--exclude-pattern can be repeated to exclude multiple patterns."""
+        assert (
+            main(
+                [
+                    "--exclude-pattern",
+                    "*.txt",
+                    "--exclude-pattern",
+                    "*.py",
+                    str(FIXTURES / "smart_quotes.txt"),
+                    str(FIXTURES / "trojan_early_return.py"),
+                ]
+            )
+            == 0
+        )
+
+    def test_exclude_pattern_matches_basename(self) -> None:
+        """Patterns match against the basename of the file."""
+        assert (
+            main(
+                [
+                    "--exclude-pattern",
+                    "smart_quotes*",
+                    str(FIXTURES / "smart_quotes.txt"),
+                ]
+            )
+            == 0
+        )
+
+    def test_exclude_all_files_exits_0(self, tmp_path: Path) -> None:
+        """Excluding all files exits 0 (nothing to check)."""
+        f = tmp_path / "dirty.txt"
+        f.write_text("\u201chello\u201d\n", encoding="utf-8")
+        assert main(["--exclude-pattern", "*.txt", str(f)]) == 0
+
+    def test_exclude_pattern_with_fix(self, tmp_path: Path) -> None:
+        """Excluded files are not fixed in --fix mode."""
+        f = tmp_path / "fixme.min.js"
+        f.write_text("\u201chello\u201d\n", encoding="utf-8")
+        assert main(["--fix", "--exclude-pattern", "*.min.js", str(f)]) == 0
+        # File should remain unmodified
+        assert "\u201c" in f.read_text(encoding="utf-8")
+
+    def test_exclude_pattern_from_config(self, tmp_path: Path) -> None:
+        """exclude-patterns from config file are applied."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'exclude-patterns = ["*.min.js"]\n',
+            encoding="utf-8",
+        )
+        f = tmp_path / "bundle.min.js"
+        f.write_text("\u201chello\u201d\n", encoding="utf-8")
+        assert main(["--config", str(config), str(f)]) == 0
+
+    def test_exclude_pattern_cli_extends_config(self, tmp_path: Path) -> None:
+        """CLI --exclude-pattern extends config exclude-patterns."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'exclude-patterns = ["*.min.js"]\n',
+            encoding="utf-8",
+        )
+        js_file = tmp_path / "bundle.min.js"
+        js_file.write_text("\u201chello\u201d\n", encoding="utf-8")
+        txt_file = tmp_path / "dirty.txt"
+        txt_file.write_text("\u201chello\u201d\n", encoding="utf-8")
+        assert (
+            main(
+                [
+                    "--config",
+                    str(config),
+                    "--exclude-pattern",
+                    "*.txt",
+                    str(js_file),
+                    str(txt_file),
+                ]
+            )
+            == 0
+        )
+
+
+class TestIsExcluded:
+    """Tests for the _is_excluded helper function."""
+
+    def test_matches_glob(self) -> None:
+        """Glob patterns match correctly."""
+        assert _is_excluded("foo.min.js", ["*.min.js"]) is True
+
+    def test_no_match(self) -> None:
+        """Non-matching patterns return False."""
+        assert _is_excluded("foo.py", ["*.js"]) is False
+
+    def test_matches_basename(self) -> None:
+        """Patterns match against the basename."""
+        assert _is_excluded("/some/deep/path/foo.min.js", ["*.min.js"]) is True
+
+    def test_matches_full_path(self) -> None:
+        """Patterns can match against the full path."""
+        assert _is_excluded("vendor/lib.js", ["vendor/*"]) is True
+
+    def test_empty_patterns(self) -> None:
+        """Empty pattern list excludes nothing."""
+        assert _is_excluded("foo.py", []) is False
