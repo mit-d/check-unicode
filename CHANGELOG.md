@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Grouped CLI help with `--help` showing organized option sections
+- Usage examples in `--help` output
+- Man page (`docs/check-unicode.1`)
+- Release workflow for automatic GitHub Releases on tag push
+- `bump-my-version` config for version management
+
 ## 0.2.0 - 2026-02-19
 
 ### Added
