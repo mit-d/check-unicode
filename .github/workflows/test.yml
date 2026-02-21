@@ -19,6 +19,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
       - run: pip install -e ".[dev]"
-      - run: pytest --cov=check_unicode
+      - run: pytest --cov=check_unicode --cov-fail-under=80
       - run: ruff check src/ tests/
       - run: mypy src/
