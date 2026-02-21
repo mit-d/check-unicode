@@ -91,9 +91,7 @@ class TestMixedAllowedWithConfig:
         assert 0x20AC in codepoints  # euro not allowed
 
 
-# ---------------------------------------------------------------------------
 # Classic literature fixtures (see tests/fixtures/LICENSES.fixtures)
-# ---------------------------------------------------------------------------
 
 # (fixture_stem, scripts needed to cover all non-ASCII characters)
 CLASSIC_TEXTS: list[tuple[str, frozenset[str]]] = [

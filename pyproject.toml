@@ -23,17 +23,20 @@ classifiers = [
   "Topic :: Software Development :: Quality Assurance",
 ]
 dynamic = [ "version" ]
-optional-dependencies.dev = [ "mypy", "pytest", "pytest-cov", "ruff" ]
+optional-dependencies.dev = [ "bump-my-version", "mypy", "pytest", "pytest-cov", "ruff" ]
 urls.Issues = "https://github.com/mit-d/check-unicode/issues"
 urls.Repository = "https://github.com/mit-d/check-unicode"
 scripts.check-unicode = "check_unicode.main:main"
 
 [tool.hatch]
 build.targets.wheel.packages = [ "src/check_unicode" ]
+build.targets.sdist.include = [ "docs/check-unicode.1" ]
 version.path = "src/check_unicode/__init__.py"
 
 [tool.ruff]
 target-version = "py311"
+line-length = 88
+indent-width = 4
 lint.select = [ "ALL" ]
 lint.ignore = [
   "COM812", # trailing comma -- conflicts with formatter
@@ -49,8 +52,23 @@ lint.per-file-ignores."tests/fixtures/**" = [
   "ALL", # fixture files are intentionally non-conformant
 ]
 
+[tool.codespell]
+ignore-words-list = "nd,caf,te"
+
 [tool.pytest]
 ini_options.testpaths = [ "tests" ]
+
+[tool.bumpversion]
+current_version = "0.2.0"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+commit_args = "--no-verify"
+message = "release: v{new_version}"
+files = [
+  { filename = "src/check_unicode/__init__.py" },
+  { filename = "CHANGELOG.md", search = "## Unreleased", replace = "## {new_version} - {now:%Y-%m-%d}" },
+]
 
 [tool.mypy]
 python_version = "3.11"

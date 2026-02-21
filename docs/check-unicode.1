@@ -1,0 +1,357 @@
+.\" Man page for check-unicode
+.\" Generate with: man ./docs/check-unicode.1
+.TH CHECK\-UNICODE 1 "2026-02-20" "check-unicode 0.2.0" "User Commands"
+.
+.SH NAME
+check\-unicode \- detect and fix non\-ASCII Unicode characters in text files
+.
+.SH SYNOPSIS
+.B check\-unicode
+.RI [ OPTIONS ]
+.IR FILE ...
+.
+.SH DESCRIPTION
+.B check\-unicode
+scans text files for non\-ASCII Unicode characters and reports their location,
+codepoint, name, and category.
+It is designed to catch copy\-paste artifacts such as smart quotes, em dashes,
+fancy spaces, and dangerous invisible characters
+(Trojan Source bidi attacks, zero\-width chars).
+.PP
+In
+.B \-\-fix
+mode it replaces known offenders with ASCII equivalents.
+Dangerous invisible characters are never auto\-fixed and always require manual
+review.
+.PP
+.B check\-unicode
+is commonly used as a
+.BR pre\-commit (1)
+hook but also works as a standalone CLI tool.
+.
+.SH POSITIONAL ARGUMENTS
+.TP
+.I FILE ...
+One or more files to check.
+At least one file is required; the program exits with code\ 2 if none are
+provided.
+.
+.SH OPTIONS
+.SS Mode
+.TP
+.B \-\-fix
+Replace known offenders (smart quotes, en/em dashes, fancy spaces, ellipsis)
+with their ASCII equivalents using an atomic write (temp file + rename).
+Exits\ 1 if any file was modified.
+Dangerous invisible characters are never auto\-fixed.
+.TP
+.BR \-V ", " \-\-version
+Print the program version and exit.
+.
+.SS Allow\-list options
+These flags suppress findings for specific characters.
+They extend (never replace) any values set in the config file.
+Dangerous invisible characters are always flagged unless explicitly allowed by
+.BR \-\-allow\-codepoint .
+.TP
+.BI \-\-allow\-range " RANGE"
+Allow a Unicode range.
+The format is
+.IR U+XXXX\-U+YYYY .
+May be repeated for multiple ranges.
+.RS
+.PP
+Example:
+.B \-\-allow\-range U+00A0\-U+00FF
+.RE
+.TP
+.BI \-\-allow\-codepoint " CP"
+Allow specific Unicode codepoints.
+Accepts
+.I U+XXXX
+notation, comma\-separated and/or repeated.
+This is the
+.B only
+flag that can suppress dangerous invisible characters.
+.RS
+.PP
+Example:
+.B \-\-allow\-codepoint U+00B0,U+00A9
+.RE
+.TP
+.BI \-\-allow\-category " CAT"
+Allow a Unicode general category.
+May be repeated for multiple categories.
+Use
+.B \-\-list\-categories
+to see all valid values.
+.RS
+.PP
+Example:
+.B \-\-allow\-category Sc
+(Symbol, currency)
+.RE
+.TP
+.B \-\-allow\-printable
+Allow all printable non\-ASCII characters.
+Only invisible and control characters will be flagged.
+.TP
+.BI \-\-allow\-script " SCRIPT"
+Allow all characters from a Unicode script.
+May be repeated.
+Script names are case\-insensitive and normalized to title case.
+Use
+.B \-\-list\-scripts
+to see all valid names.
+.RS
+.PP
+Example:
+.B \-\-allow\-script Cyrillic \-\-allow\-script Greek
+.RE
+.TP
+.B \-\-list\-categories
+Print all 30 Unicode general categories with descriptions and examples,
+then exit.
+Useful for discovering valid values for
+.BR \-\-allow\-category .
+.TP
+.B \-\-list\-scripts
+Print all known Unicode script names, then exit.
+Useful for discovering valid values for
+.BR \-\-allow\-script .
+.
+.SS Detection options
+.TP
+.B \-\-check\-confusables
+Detect mixed\-script homoglyph/confusable characters, such as a Cyrillic
+.B a
+(U+0430) mixed into a Latin identifier.
+This check is
+.B not
+suppressed by
+.BR \-\-allow\-script .
+.
+.SS Output options
+.TP
+.BI \-\-severity " LEVEL"
+Set exit\-code behavior.
+.I LEVEL
+must be
+.B error
+(exit\ 1 on findings) or
+.B warning
+(print findings but exit\ 0).
+Default:
+.BR error .
+.TP
+.B \-\-no\-color
+Disable ANSI color output.
+Color is also disabled when the
+.B NO_COLOR
+environment variable is set or stdout is not a TTY.
+.TP
+.BR \-q ", " \-\-quiet
+Print the summary line only; suppress per\-finding details.
+.
+.SS Configuration
+.TP
+.BI \-\-config " FILE"
+Path to a TOML config file.
+If omitted, the program auto\-discovers
+.I .check\-unicode.toml
+in the current directory, or
+.I [tool.check\-unicode]
+in
+.IR pyproject.toml .
+.TP
+.BI \-\-exclude\-pattern " PATTERN"
+Exclude files matching a glob pattern.
+May be repeated.
+Extends any
+.B exclude\-patterns
+set in the config file.
+Patterns are matched against both the full path and the basename.
+.RS
+.PP
+Example:
+.B \-\-exclude\-pattern '*.min.js' \-\-exclude\-pattern 'vendor/*'
+.RE
+.
+.SH CONFIGURATION FILE
+Settings can be stored in
+.I .check\-unicode.toml
+(standalone) or under the
+.B [tool.check\-unicode]
+table in
+.IR pyproject.toml .
+CLI flags always extend config\-file values; they never replace them.
+.PP
+.nf
+.RS
+[tool.check\-unicode]
+allow\-codepoints  = ["U+00B0", "U+2192"]
+allow\-ranges      = ["U+00A0\-U+00FF"]
+allow\-categories  = ["Sc"]
+allow\-printable   = true
+allow\-scripts     = ["Latin", "Cyrillic"]
+check\-confusables = true
+severity          = "error"
+exclude\-patterns  = ["*.min.js", "vendor/*"]
+.RE
+.fi
+.
+.SH EXIT CODES
+.TP
+.B 0
+No findings were detected, or
+.B \-\-severity=warning
+was used.
+.TP
+.B 1
+Non\-ASCII findings were detected, or files were modified in
+.B \-\-fix
+mode.
+.TP
+.B 2
+Usage error (invalid arguments, no files specified, etc.).
+.
+.SH WHAT IT CATCHES
+.SS Copy\-paste artifacts (fixable with \-\-fix)
+.TP
+.B Smart quotes
+\(lq\(rq \(oq\(cq and variants \(-> replaced with ASCII quotes
+.TP
+.B Dashes
+Em dash (U+2014), en dash (U+2013), minus sign (U+2212) \(-> replaced with
+.B \-\-
+or
+.BR \- .
+.TP
+.B Fancy spaces
+Non\-breaking space, em space, thin space, and 14 other Unicode space characters
+\(-> replaced with a regular space.
+.TP
+.B Ellipsis
+Horizontal ellipsis (U+2026) \(-> replaced with
+.BR ... .
+.
+.SS Dangerous invisible characters (never auto\-fixed)
+.TP
+.B Bidi controls (Trojan Source CVE\-2021\-42574)
+U+202A\-202E (embedding/override), U+2066\-2069 (isolate).
+These can make source code appear to do something different from what it
+actually does.
+.TP
+.B Zero\-width characters
+U+200B\-200F, U+FEFF (mid\-file BOM), U+2060\-2064, U+180E.
+Invisible characters that can break identifiers or hide malicious code.
+.TP
+.B Replacement character
+U+FFFD, usually indicates an encoding error.
+.
+.SS Confusable homoglyphs (with \-\-check\-confusables)
+Mixed\-script identifiers where minority\-script characters visually resemble
+Latin letters (e.g.\& Cyrillic
+.I a
+U+0430 in a Latin word).
+.
+.SH OUTPUT FORMAT
+For each finding, the program prints the file, line, column, codepoint,
+Unicode name, and general category:
+.PP
+.nf
+.RS
+path/to/file.txt:42:17: U+201C LEFT DOUBLE QUOTATION MARK [Ps]
+  He said \(lqhello\(rq to the crowd
+          ^
+.RE
+.fi
+.PP
+After all findings, a summary line is printed:
+.PP
+.nf
+.RS
+Found 5 non\-ASCII characters in 2 files (3 fixable, 1 dangerous)
+.RE
+.fi
+.
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+If set (to any value), ANSI color output is disabled.
+See
+.IR https://no\-color.org/ .
+.
+.SH EXAMPLES
+Check all Python files in a project:
+.PP
+.RS
+.B check\-unicode src/**/*.py
+.RE
+.PP
+Auto\-fix smart quotes and dashes:
+.PP
+.RS
+.B check\-unicode \-\-fix *.txt
+.RE
+.PP
+Allow printable characters, flag only invisibles:
+.PP
+.RS
+.B check\-unicode \-\-allow\-printable src/
+.RE
+.PP
+Detect confusables while allowing Cyrillic script:
+.PP
+.RS
+.B check\-unicode \-\-check\-confusables \-\-allow\-script Cyrillic src/
+.RE
+.PP
+Warn without failing CI, disable color:
+.PP
+.RS
+.B check\-unicode \-\-severity warning \-\-no\-color src/
+.RE
+.PP
+List all valid Unicode script names:
+.PP
+.RS
+.B check\-unicode \-\-list\-scripts
+.RE
+.PP
+List all valid Unicode general categories:
+.PP
+.RS
+.B check\-unicode \-\-list\-categories
+.RE
+.PP
+Use with pre\-commit:
+.PP
+.nf
+.RS
+repos:
+  \- repo: https://github.com/mit\-d/check\-unicode
+    rev: v0.2.0
+    hooks:
+      \- id: check\-unicode
+      # or for auto\-fix:
+      \- id: fix\-unicode
+.RE
+.fi
+.
+.SH SEE ALSO
+.BR pre\-commit (1),
+.BR python3 (1),
+.BR unicode (7)
+.PP
+Project repository:
+.I https://github.com/mit\-d/check\-unicode
+.
+.SH AUTHORS
+mit\-d <derekmttn@gmail.com>
+.
+.SH LICENSE
+MIT License.
+See the
+.I LICENSE
+file in the source distribution.
