@@ -7,11 +7,17 @@ from pathlib import Path
 
 import pytest
 
+from check_unicode.checker import AllowConfig
 from check_unicode.main import (
+    Override,
+    _build_overrides,
     _build_parser,
+    _file_matches_override,
     _is_excluded,
     _parse_codepoint,
     _parse_range,
+    _resolve_allow_for_file,
+    _resolve_file_settings,
     main,
 )
 
@@ -602,3 +608,269 @@ class TestListCategories:
     def test_list_categories_does_not_require_files(self) -> None:
         """--list-categories works without specifying any files."""
         assert main(["--list-categories"]) == 0
+
+
+class TestOverrides:
+    """Tests for [[tool.check-unicode.overrides]] per-file config."""
+
+    def test_override_extends_global_allow(self, tmp_path: Path) -> None:
+        """Override allows emoji in matched file but not in unmatched file."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*.md"]\nallow-categories = ["So"]\n',
+            encoding="utf-8",
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text("\u00a9 symbol\n", encoding="utf-8")  # So category
+        py_file = tmp_path / "code.py"
+        py_file.write_text("\u00a9 symbol\n", encoding="utf-8")
+
+        # md file is allowed via override
+        assert main(["--config", str(config), str(md_file)]) == 0
+        # py file is not matched, still flagged
+        assert main(["--config", str(config), str(py_file)]) == 1
+
+    def test_multiple_overrides_multiple_patterns(self, tmp_path: Path) -> None:
+        """Multiple overrides and multiple patterns per override work."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*.md", "*.txt"]\n'
+            'allow-codepoints = ["U+00B0"]\n\n'
+            '[[overrides]]\nfiles = ["*.rst"]\n'
+            'allow-codepoints = ["U+00A9"]\n',
+            encoding="utf-8",
+        )
+        md_file = tmp_path / "doc.md"
+        md_file.write_text("72\u00b0F\n", encoding="utf-8")
+        txt_file = tmp_path / "notes.txt"
+        txt_file.write_text("72\u00b0F\n", encoding="utf-8")
+        rst_file = tmp_path / "doc.rst"
+        rst_file.write_text("\u00a9 2024\n", encoding="utf-8")
+
+        assert main(["--config", str(config), str(md_file)]) == 0
+        assert main(["--config", str(config), str(txt_file)]) == 0
+        assert main(["--config", str(config), str(rst_file)]) == 0
+
+    def test_per_file_severity_warning(self, tmp_path: Path) -> None:
+        """Override with severity=warning doesn't affect exit code."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*.md"]\nseverity = "warning"\n',
+            encoding="utf-8",
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text("\u201chello\u201d\n", encoding="utf-8")
+        py_file = tmp_path / "code.py"
+        py_file.write_text("\u201chello\u201d\n", encoding="utf-8")
+
+        # md has findings but severity=warning -> exit 0
+        assert main(["--config", str(config), str(md_file)]) == 0
+        # py has findings with default severity=error -> exit 1
+        assert main(["--config", str(config), str(py_file)]) == 1
+
+    def test_per_file_severity_mixed(self, tmp_path: Path) -> None:
+        """Mixed severity: warning file + error file together exits 1."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*.md"]\nseverity = "warning"\n',
+            encoding="utf-8",
+        )
+        md_file = tmp_path / "README.md"
+        md_file.write_text("\u201chello\u201d\n", encoding="utf-8")
+        py_file = tmp_path / "code.py"
+        py_file.write_text("\u201chello\u201d\n", encoding="utf-8")
+
+        # Both files scanned: py is error -> exit 1
+        assert main(["--config", str(config), str(md_file), str(py_file)]) == 1
+
+    def test_per_file_severity_all_warnings(self, tmp_path: Path) -> None:
+        """All files with severity=warning and findings -> exit 0."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*"]\nseverity = "warning"\n',
+            encoding="utf-8",
+        )
+        f = tmp_path / "test.txt"
+        f.write_text("\u201chello\u201d\n", encoding="utf-8")
+
+        assert main(["--config", str(config), str(f)]) == 0
+
+    def test_per_file_check_confusables_toggle(self, tmp_path: Path) -> None:
+        """Override can disable check-confusables for specific files."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            "check-confusables = true\n"
+            '[[overrides]]\nfiles = ["*.md"]\ncheck-confusables = false\n',
+            encoding="utf-8",
+        )
+        # File with a Cyrillic 'a' (U+0430) mixed into Latin text
+        md_file = tmp_path / "doc.md"
+        md_file.write_text("p\u0430ssword\n", encoding="utf-8")
+        py_file = tmp_path / "code.py"
+        py_file.write_text("p\u0430ssword\n", encoding="utf-8")
+
+        # md has confusables disabled by override; still flagged for non-ASCII
+        # but allow the Cyrillic script to isolate confusable check
+        config.write_text(
+            "check-confusables = true\n"
+            'allow-scripts = ["Cyrillic"]\n'
+            '[[overrides]]\nfiles = ["*.md"]\ncheck-confusables = false\n',
+            encoding="utf-8",
+        )
+        # md: Cyrillic allowed, confusables OFF -> exit 0
+        assert main(["--config", str(config), str(md_file)]) == 0
+        # py: Cyrillic allowed, confusables ON -> exit 1 (confusable found)
+        assert main(["--config", str(config), str(py_file)]) == 1
+
+    def test_override_allow_printable(self, tmp_path: Path) -> None:
+        """Override with allow-printable=true for specific files."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*.md"]\nallow-printable = true\n',
+            encoding="utf-8",
+        )
+        md_file = tmp_path / "doc.md"
+        md_file.write_text("caf\u00e9\n", encoding="utf-8")
+        py_file = tmp_path / "code.py"
+        py_file.write_text("caf\u00e9\n", encoding="utf-8")
+
+        # md: printable allowed via override -> exit 0
+        assert main(["--config", str(config), str(md_file)]) == 0
+        # py: no override match -> exit 1
+        assert main(["--config", str(config), str(py_file)]) == 1
+
+    def test_override_missing_files_key(self) -> None:
+        """Override without 'files' key raises ValueError."""
+        with pytest.raises(ValueError, match="files"):
+            _build_overrides({"overrides": [{"allow-printable": True}]})
+
+    def test_override_no_allow_fields(self, tmp_path: Path) -> None:
+        """Override with only 'files' key is valid but a no-op."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*.md"]\n',
+            encoding="utf-8",
+        )
+        md_file = tmp_path / "doc.md"
+        md_file.write_text("\u201chello\u201d\n", encoding="utf-8")
+
+        # Still flagged: override is a no-op
+        assert main(["--config", str(config), str(md_file)]) == 1
+
+    def test_glob_basename_pattern(self) -> None:
+        """Basename patterns like *.md match regardless of path."""
+        ovr = Override(
+            patterns=("*.md",),
+            codepoints=frozenset(),
+            ranges=(),
+            categories=frozenset(),
+            printable=None,
+            scripts=frozenset(),
+            severity=None,
+            check_confusables=None,
+        )
+        assert _file_matches_override("docs/README.md", ovr) is True
+        assert _file_matches_override("README.md", ovr) is True
+        assert _file_matches_override("code.py", ovr) is False
+
+    def test_glob_path_pattern(self) -> None:
+        """Path patterns like docs/* match against full path."""
+        ovr = Override(
+            patterns=("docs/*",),
+            codepoints=frozenset(),
+            ranges=(),
+            categories=frozenset(),
+            printable=None,
+            scripts=frozenset(),
+            severity=None,
+            check_confusables=None,
+        )
+        assert _file_matches_override("docs/guide.md", ovr) is True
+        assert _file_matches_override("src/main.py", ovr) is False
+
+    def test_glob_exact_name(self) -> None:
+        """Exact file name patterns match."""
+        ovr = Override(
+            patterns=("README.md",),
+            codepoints=frozenset(),
+            ranges=(),
+            categories=frozenset(),
+            printable=None,
+            scripts=frozenset(),
+            severity=None,
+            check_confusables=None,
+        )
+        assert _file_matches_override("README.md", ovr) is True
+        assert _file_matches_override("docs/README.md", ovr) is True
+        assert _file_matches_override("CHANGELOG.md", ovr) is False
+
+    def test_resolve_allow_merges_additively(self) -> None:
+        """Allow-list fields merge additively across overrides."""
+        base = AllowConfig(
+            codepoints=frozenset({0x00B0}),
+            categories=frozenset({"Sc"}),
+        )
+        ovr = Override(
+            patterns=("*.md",),
+            codepoints=frozenset({0x00A9}),
+            ranges=((0x2000, 0x200A),),
+            categories=frozenset({"So"}),
+            printable=None,
+            scripts=frozenset({"Cyrillic"}),
+            severity=None,
+            check_confusables=None,
+        )
+        result = _resolve_allow_for_file("doc.md", base, (ovr,))
+        assert 0x00B0 in result.codepoints
+        assert 0x00A9 in result.codepoints
+        assert "Sc" in result.categories
+        assert "So" in result.categories
+        assert (0x2000, 0x200A) in result.ranges
+        assert "Cyrillic" in result.scripts
+        assert result.printable is False  # not set in override
+
+    def test_resolve_file_settings_last_wins(self) -> None:
+        """For scalar settings, last matching override wins."""
+        ovr1 = Override(
+            patterns=("*",),
+            codepoints=frozenset(),
+            ranges=(),
+            categories=frozenset(),
+            printable=None,
+            scripts=frozenset(),
+            severity="warning",
+            check_confusables=True,
+        )
+        ovr2 = Override(
+            patterns=("*.py",),
+            codepoints=frozenset(),
+            ranges=(),
+            categories=frozenset(),
+            printable=None,
+            scripts=frozenset(),
+            severity="error",
+            check_confusables=False,
+        )
+        sev, conf = _resolve_file_settings(
+            "code.py",
+            "error",
+            global_confusables=False,
+            overrides=(ovr1, ovr2),
+        )
+        assert sev == "error"  # ovr2 wins
+        assert conf is False  # ovr2 wins
+
+    def test_global_severity_warning_still_works(self, tmp_path: Path) -> None:
+        """Global severity=warning without overrides still exits 0."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            'severity = "warning"\n'
+            '[[overrides]]\nfiles = ["*.md"]\n'
+            'allow-codepoints = ["U+00B0"]\n',
+            encoding="utf-8",
+        )
+        py_file = tmp_path / "code.py"
+        py_file.write_text("\u201chello\u201d\n", encoding="utf-8")
+
+        # Global severity is warning -> exit 0 even for unmatched files
+        assert main(["--config", str(config), str(py_file)]) == 0
