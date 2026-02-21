@@ -1,3 +1,3 @@
 """Pre-commit hook to detect and fix non-ASCII Unicode characters."""
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
