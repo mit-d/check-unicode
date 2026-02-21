@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import pytest
 
-from check_unicode.main import _is_excluded, _parse_codepoint, _parse_range, main
+from check_unicode.main import (
+    _build_parser,
+    _is_excluded,
+    _parse_codepoint,
+    _parse_range,
+    main,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -423,3 +430,165 @@ class TestIsExcluded:
     def test_empty_patterns(self) -> None:
         """Empty pattern list excludes nothing."""
         assert _is_excluded("foo.py", []) is False
+
+
+class TestHelpOutput:
+    """Tests for the -h/--help output."""
+
+    def test_help_flag_exits_0(self) -> None:
+        """--help causes SystemExit with code 0."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--help"])
+        assert exc_info.value.code == 0
+
+    def test_help_contains_argument_groups(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Help output includes named argument groups."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "allow-list options" in out
+        assert "detection options" in out
+        assert "output options" in out
+        assert "configuration" in out
+        assert "mode" in out
+
+    def test_help_contains_examples(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Help output includes the examples epilog section."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "examples:" in out
+        assert "check-unicode --fix" in out
+        assert "--allow-printable" in out
+
+    def test_help_contains_exit_codes(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Help output includes exit code documentation."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "exit codes:" in out
+        assert "No findings" in out
+        assert "Usage error" in out
+
+    def test_help_contains_config_example(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Help output includes a TOML configuration example."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "allow-codepoints" in out
+        assert ".check-unicode.toml" in out
+
+    def test_parser_uses_raw_formatter(self) -> None:
+        """Parser uses RawDescriptionHelpFormatter to preserve epilog formatting."""
+        parser = _build_parser()
+        assert parser.formatter_class is argparse.RawDescriptionHelpFormatter
+
+    def test_help_describes_dangerous_characters(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Help mentions that dangerous characters require explicit allow-codepoint."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "dangerous" in out.lower()
+        assert "--allow-codepoint" in out
+
+    def test_help_mentions_list_flags(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Help text cross-references --list-scripts and --list-categories."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "--list-scripts" in out
+        assert "--list-categories" in out
+
+
+class TestListScripts:
+    """Tests for the --list-scripts flag."""
+
+    def test_list_scripts_exits_0(self) -> None:
+        """--list-scripts exits with code 0."""
+        assert main(["--list-scripts"]) == 0
+
+    def test_list_scripts_output(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """--list-scripts prints known script names."""
+        main(["--list-scripts"])
+        out = capsys.readouterr().out
+        assert "Latin" in out
+        assert "Cyrillic" in out
+        assert "Greek" in out
+        assert "Han" in out
+        assert "Arabic" in out
+
+    def test_list_scripts_contains_count(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--list-scripts shows a total count."""
+        main(["--list-scripts"])
+        out = capsys.readouterr().out
+        assert "Total:" in out
+
+    def test_list_scripts_mentions_case_insensitive(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--list-scripts reminds users that names are case-insensitive."""
+        main(["--list-scripts"])
+        out = capsys.readouterr().out
+        assert "case-insensitive" in out.lower()
+
+    def test_list_scripts_does_not_require_files(self) -> None:
+        """--list-scripts works without specifying any files."""
+        assert main(["--list-scripts"]) == 0
+
+
+class TestListCategories:
+    """Tests for the --list-categories flag."""
+
+    def test_list_categories_exits_0(self) -> None:
+        """--list-categories exits with code 0."""
+        assert main(["--list-categories"]) == 0
+
+    def test_list_categories_output(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """--list-categories prints all 30 Unicode general categories."""
+        main(["--list-categories"])
+        out = capsys.readouterr().out
+        assert "Sc" in out
+        assert "Lu" in out
+        assert "Mn" in out
+        assert "Zs" in out
+
+    def test_list_categories_shows_major_groups(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--list-categories organizes output by major class."""
+        main(["--list-categories"])
+        out = capsys.readouterr().out
+        assert "Letter:" in out
+        assert "Symbol:" in out
+        assert "Punctuation:" in out
+        assert "Number:" in out
+        assert "Separator:" in out
+
+    def test_list_categories_contains_count(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--list-categories shows the total count of 30."""
+        main(["--list-categories"])
+        out = capsys.readouterr().out
+        assert "Total: 30" in out
+
+    def test_list_categories_contains_descriptions(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--list-categories includes human-readable descriptions."""
+        main(["--list-categories"])
+        out = capsys.readouterr().out
+        assert "Symbol, currency" in out
+        assert "Letter, uppercase" in out
+
+    def test_list_categories_does_not_require_files(self) -> None:
+        """--list-categories works without specifying any files."""
+        assert main(["--list-categories"]) == 0

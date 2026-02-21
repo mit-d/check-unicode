@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0
+## 0.2.0 - 2026-02-19
 
 ### Added
 
@@ -20,7 +20,7 @@
   printable i18n text.
 - TOML config keys: `allow-printable`, `allow-scripts`, `check-confusables`.
 
-## 0.1.0
+## 0.1.0 - 2026-02-18
 
 Initial release.
 
