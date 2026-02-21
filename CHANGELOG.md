@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- PR template with changelog and testing checklist
+- Coverage threshold (80%) enforced in CI
+- `markdownlint` config: allow duplicate headings across sibling sections
+
 ## 0.3.0 - 2026-02-21
 
 ### Added
