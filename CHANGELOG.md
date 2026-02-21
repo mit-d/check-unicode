@@ -7,6 +7,7 @@
 - `CONTRIBUTING.md` guide
 - `SECURITY.md` with private vulnerability reporting instructions
 - Issue templates for bug reports and feature requests
+- Make `bump-my-version` handle README.md version
 
 ## 0.3.1 - 2026-02-21
 
