@@ -1,3 +1,5 @@
 config:
   line-length:
     tables: false
+  no-duplicate-heading:
+    siblings_only: true
