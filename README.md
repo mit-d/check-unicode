@@ -16,7 +16,7 @@ Catches smart quotes, em dashes, fancy spaces, dangerous invisible characters
 ```yaml
 repos:
   - repo: https://github.com/mit-d/check-unicode
-    rev: v0.1.0
+    rev: v0.3.1
     hooks:
       - id: check-unicode
       # or for auto-fix:

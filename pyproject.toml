@@ -68,6 +68,7 @@ message = "release: v{new_version}"
 files = [
   { filename = "src/check_unicode/__init__.py" },
   { filename = "CHANGELOG.md", search = "## Unreleased", replace = "## {new_version} - {now:%Y-%m-%d}" },
+  { filename = "README.md", search = "rev: v{current_version}", replace = "rev: v{new_version}" },
 ]
 
 [tool.mypy]
