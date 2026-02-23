@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `--fix` mode now fixes all files, not just the first (`any()` short-circuited
+  after the first fixable file, skipping the rest)
+
 ## 0.3.2 - 2026-02-21
 
 ### Added
