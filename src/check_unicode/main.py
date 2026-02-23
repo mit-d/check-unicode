@@ -472,7 +472,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Fix mode
     if args.fix:
-        any_fixed = any(fix_file(filepath) for filepath in files)
+        fixed = [fix_file(filepath) for filepath in files]
+        any_fixed = any(fixed)
         all_findings = _scan_files(files, allow, do_confusables=do_confusables)
         if all_findings:
             print_findings(all_findings, no_color=args.no_color, quiet=args.quiet)

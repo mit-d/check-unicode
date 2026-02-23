@@ -60,6 +60,16 @@ class TestFixMode:
         f.write_text("hello world\n", encoding="utf-8")
         assert main(["--fix", str(f)]) == 0
 
+    def test_fix_multiple_files_all_fixed(self, tmp_path: Path) -> None:
+        """Fix mode fixes all files, not just the first one."""
+        f1 = tmp_path / "a.txt"
+        f2 = tmp_path / "b.txt"
+        f1.write_text("He said \u201chello\u201d\n", encoding="utf-8")
+        f2.write_text("word\u2014word\n", encoding="utf-8")
+        assert main(["--fix", str(f1), str(f2)]) == 1
+        assert f1.read_text(encoding="utf-8") == 'He said "hello"\n'
+        assert f2.read_text(encoding="utf-8") == "word--word\n"
+
     def test_fix_dangerous_still_reported(self, tmp_path: Path) -> None:
         """Fix mode does not remove dangerous characters."""
         f = tmp_path / "bidi.txt"
