@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `[[tool.check-unicode.overrides]]` per-file config: apply different
+  allow-lists, severity, and confusable settings per file pattern
+- Per-file severity: override `severity` to `"warning"` for specific file
+  patterns so findings don't affect exit code
+- Per-file confusable toggle: enable or disable `check-confusables` per file
+  pattern
+- `uv.lock` added to `.gitignore`
+
 ## 0.3.3 - 2026-02-23
 
 ### Fixed

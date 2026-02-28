@@ -7,6 +7,7 @@ import fnmatch
 import sys
 import textwrap
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,20 @@ UNICODE_CATEGORIES: dict[str, tuple[str, str]] = {
     "Co": ("Other, private use", "U+E000-U+F8FF"),
     "Cn": ("Other, not assigned", "reserved codepoints"),
 }
+
+
+@dataclass(frozen=True)
+class Override:
+    """Per-file override from [[tool.check-unicode.overrides]]."""
+
+    patterns: tuple[str, ...]
+    codepoints: frozenset[int]
+    ranges: tuple[tuple[int, int], ...]
+    categories: frozenset[str]
+    printable: bool | None  # None = inherit global
+    scripts: frozenset[str]
+    severity: str | None  # None = inherit global
+    check_confusables: bool | None  # None = inherit global
 
 
 def _parse_codepoint(s: str) -> int:
@@ -427,19 +442,129 @@ def _build_exclude_patterns(
     return patterns
 
 
+def _build_overrides(config: dict[str, Any]) -> tuple[Override, ...]:
+    """Parse [[overrides]] entries from the config into Override objects."""
+    raw = config.get("overrides", [])
+    overrides: list[Override] = []
+    for entry in raw:
+        if "files" not in entry:
+            msg = "Each [[overrides]] entry must have a 'files' key"
+            raise ValueError(msg)
+        patterns = tuple(entry["files"])
+        codepoints, ranges, categories, printable_val, scripts = _allow_from_config(
+            entry
+        )
+        # For override, printable is None when not set (inherit global)
+        printable: bool | None = (
+            True if printable_val else None if "allow-printable" not in entry else False
+        )
+        severity: str | None = entry.get("severity")
+        check_confusables: bool | None = entry.get("check-confusables")
+        overrides.append(
+            Override(
+                patterns=patterns,
+                codepoints=frozenset(codepoints),
+                ranges=tuple(ranges),
+                categories=frozenset(categories),
+                printable=printable,
+                scripts=frozenset(scripts),
+                severity=severity,
+                check_confusables=check_confusables,
+            )
+        )
+    return tuple(overrides)
+
+
+def _file_matches_override(filepath: str, override: Override) -> bool:
+    """Check whether a filepath matches any pattern in an override."""
+    name = Path(filepath).name
+    return any(
+        fnmatch.fnmatch(filepath, pat) or fnmatch.fnmatch(name, pat)
+        for pat in override.patterns
+    )
+
+
+def _resolve_allow_for_file(
+    filepath: str,
+    base_allow: AllowConfig,
+    overrides: tuple[Override, ...],
+) -> AllowConfig:
+    """Merge matching overrides onto the base AllowConfig for a file."""
+    codepoints = set(base_allow.codepoints)
+    ranges = list(base_allow.ranges)
+    categories = set(base_allow.categories)
+    printable = base_allow.printable
+    scripts = set(base_allow.scripts)
+
+    for ovr in overrides:
+        if not _file_matches_override(filepath, ovr):
+            continue
+        codepoints |= ovr.codepoints
+        ranges.extend(ovr.ranges)
+        categories |= ovr.categories
+        if ovr.printable is not None:
+            printable = ovr.printable
+        scripts |= ovr.scripts
+
+    return AllowConfig(
+        codepoints=frozenset(codepoints),
+        ranges=tuple(ranges),
+        categories=frozenset(categories),
+        printable=printable,
+        scripts=frozenset(scripts),
+    )
+
+
+def _resolve_file_settings(
+    filepath: str,
+    global_severity: str,
+    *,
+    global_confusables: bool,
+    overrides: tuple[Override, ...],
+) -> tuple[str, bool]:
+    """Return (severity, do_confusables) for a file after applying overrides."""
+    severity = global_severity
+    do_confusables = global_confusables
+    for ovr in overrides:
+        if not _file_matches_override(filepath, ovr):
+            continue
+        if ovr.severity is not None:
+            severity = ovr.severity
+        if ovr.check_confusables is not None:
+            do_confusables = ovr.check_confusables
+    return severity, do_confusables
+
+
 def _scan_files(
     files: list[str],
     allow: AllowConfig,
+    overrides: tuple[Override, ...],
     *,
     do_confusables: bool,
-) -> list[Finding]:
-    """Scan files for non-ASCII and (optionally) confusable characters."""
+    severity: str,
+) -> tuple[list[Finding], bool]:
+    """Scan files for non-ASCII and (optionally) confusable characters.
+
+    Returns (findings, has_errors) where has_errors is True if any finding
+    came from a file whose effective severity is "error".
+    """
     findings: list[Finding] = []
+    has_errors = False
     for filepath in files:
-        findings.extend(check_file(filepath, allow))
-        if do_confusables:
-            findings.extend(check_confusables(filepath))
-    return findings
+        file_allow = _resolve_allow_for_file(filepath, allow, overrides)
+        file_severity, file_confusables = _resolve_file_settings(
+            filepath,
+            severity,
+            global_confusables=do_confusables,
+            overrides=overrides,
+        )
+        file_findings = check_file(filepath, file_allow)
+        if file_confusables:
+            file_findings.extend(check_confusables(filepath))
+        if file_findings and file_severity == "error":
+            has_errors = True
+        findings.extend(file_findings)
+    return findings, has_errors
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -462,6 +587,7 @@ def main(argv: list[str] | None = None) -> int:
     severity = args.severity or config.get("severity", "error")
     allow = _build_allow_config(args, config)
     do_confusables = args.check_confusables or config.get("check-confusables", False)
+    overrides = _build_overrides(config)
 
     # Filter out excluded files
     exclude_patterns = _build_exclude_patterns(args, config)
@@ -474,16 +600,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.fix:
         fixed = [fix_file(filepath) for filepath in files]
         any_fixed = any(fixed)
-        all_findings = _scan_files(files, allow, do_confusables=do_confusables)
+        all_findings, has_errors = _scan_files(
+            files, allow, overrides, do_confusables=do_confusables, severity=severity
+        )
         if all_findings:
             print_findings(all_findings, no_color=args.no_color, quiet=args.quiet)
         return 1 if any_fixed or all_findings else 0
 
     # Check mode
-    all_findings = _scan_files(files, allow, do_confusables=do_confusables)
+    all_findings, has_errors = _scan_files(
+        files, allow, overrides, do_confusables=do_confusables, severity=severity
+    )
     if all_findings:
         print_findings(all_findings, no_color=args.no_color, quiet=args.quiet)
-        return 0 if severity == "warning" else 1
+        return 1 if has_errors else 0
 
     return 0
 

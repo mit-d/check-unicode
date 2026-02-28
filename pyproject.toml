@@ -24,13 +24,14 @@ classifiers = [
 ]
 dynamic = [ "version" ]
 optional-dependencies.dev = [ "bump-my-version", "mypy", "pytest", "pytest-cov", "ruff" ]
+urls.Changelog = "https://github.com/mit-d/check-unicode/blob/main/CHANGELOG.md"
 urls.Issues = "https://github.com/mit-d/check-unicode/issues"
 urls.Repository = "https://github.com/mit-d/check-unicode"
 scripts.check-unicode = "check_unicode.main:main"
 
 [tool.hatch]
 build.targets.wheel.packages = [ "src/check_unicode" ]
-build.targets.sdist.include = [ "docs/check-unicode.1" ]
+build.targets.sdist.include = [ "src/", "docs/check-unicode.1" ]
 version.path = "src/check_unicode/__init__.py"
 
 [tool.ruff]
