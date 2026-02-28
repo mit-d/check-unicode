@@ -70,8 +70,11 @@ files = [
   { filename = "src/check_unicode/__init__.py" },
   { filename = "CHANGELOG.md", search = "## Unreleased", replace = "## {new_version} - {now:%Y-%m-%d}" },
   { filename = "README.md", search = "rev: v{current_version}", replace = "rev: v{new_version}" },
+  { filename = "docs/check-unicode.1", search = "check-unicode {current_version}", replace = "check-unicode {new_version}" },
+  { filename = "docs/check-unicode.1", search = "rev: v{current_version}", replace = "rev: v{new_version}" },
 ]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
+exclude = [ "tests/fixtures/" ]
