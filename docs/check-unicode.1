@@ -1,6 +1,6 @@
 .\" Man page for check-unicode
 .\" Generate with: man ./docs/check-unicode.1
-.TH CHECK\-UNICODE 1 "2026-02-20" "check-unicode 0.2.0" "User Commands"
+.TH CHECK\-UNICODE 1 "2026-02-28" "check-unicode 0.4.0" "User Commands"
 .
 .SH NAME
 check\-unicode \- detect and fix non\-ASCII Unicode characters in text files
@@ -199,13 +199,48 @@ severity          = "error"
 exclude\-patterns  = ["*.min.js", "vendor/*"]
 .RE
 .fi
+.PP
+Per\-file overrides can be added with
+.B [[tool.check\-unicode.overrides]]
+sections.
+Each entry requires a
+.B files
+key containing a list of glob patterns.
+Allow\-list options
+.RB ( allow\-codepoints ", " allow\-ranges ", " allow\-categories ", "
+.BR allow\-printable ", " allow\-scripts )
+are
+.B additive
+\(em they merge with the global config.
+.B severity
+and
+.B check\-confusables
+.B replace
+the global value for matching files.
+.PP
+.nf
+.RS
+[[tool.check\-unicode.overrides]]
+files             = ["docs/*.md", "*.rst"]
+allow\-printable   = true
+severity          = "warning"
+
+[[tool.check\-unicode.overrides]]
+files             = ["i18n/**"]
+allow\-scripts     = ["Cyrillic", "Han"]
+check\-confusables = false
+.RE
+.fi
 .
 .SH EXIT CODES
 .TP
 .B 0
-No findings were detected, or
-.B \-\-severity=warning
-was used.
+No findings were detected, or all findings came from files whose effective
+severity is
+.BR warning
+(set globally via
+.B \-\-severity
+or per\-file via overrides).
 .TP
 .B 1
 Non\-ASCII findings were detected, or files were modified in
@@ -331,7 +366,7 @@ Use with pre\-commit:
 .RS
 repos:
   \- repo: https://github.com/mit\-d/check\-unicode
-    rev: v0.2.0
+    rev: v0.4.0
     hooks:
       \- id: check\-unicode
       # or for auto\-fix:

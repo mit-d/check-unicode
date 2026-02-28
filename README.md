@@ -96,6 +96,31 @@ check-confusables = true
 severity = "error"
 ```
 
+### Per-file overrides
+
+Use `[[tool.check-unicode.overrides]]` to apply different settings per file
+pattern. Each entry requires a `files` key with a list of glob patterns and can
+set any of the options above.
+
+Allow-lists (`allow-codepoints`, `allow-ranges`, `allow-categories`,
+`allow-printable`, `allow-scripts`) are **additive** -- they merge with the
+global config. `severity` and `check-confusables` **replace** the global value
+for matching files.
+
+```toml
+# Relax rules for documentation
+[[tool.check-unicode.overrides]]
+files = ["docs/*.md", "*.rst"]
+allow-printable = true
+severity = "warning"
+
+# Allow non-Latin scripts in i18n files
+[[tool.check-unicode.overrides]]
+files = ["i18n/**"]
+allow-scripts = ["Cyrillic", "Han"]
+check-confusables = false
+```
+
 ## Output
 
 ```text

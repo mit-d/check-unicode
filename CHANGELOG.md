@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+
+- Document per-file `[[tool.check-unicode.overrides]]` in README and man page
+- Update man page version to 0.4.0 and fix stale pre-commit `rev`
+- Add man page to `bump-my-version` files list
+
+### Fixed
+
+- Exclude `tests/fixtures/` from mypy (intentionally malformed Trojan Source
+  files)
+
 ## 0.4.0 - 2026-02-28
 
 ### Added
