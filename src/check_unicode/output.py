@@ -64,10 +64,15 @@ def _compact_ranges(lines: list[int]) -> str:
     return ",".join(ranges)
 
 
-def _rendered_width(ch: str) -> int:
-    """Return the display width of a character after invisible-char expansion."""
-    cp = ord(ch)
-    return len(f"<U+{cp:04X}>") if cp > _MAX_ASCII and not ch.isprintable() else 1
+def _is_more_severe(candidate: Finding, existing: Finding) -> bool:
+    """Return True if *candidate* should replace *existing*."""
+    if candidate.dangerous and not existing.dangerous:
+        return True
+    return (
+        candidate.confusable is not None
+        and not existing.dangerous
+        and existing.confusable is None
+    )
 
 
 def _build_caret_line(line: str, line_findings: list[Finding]) -> str:
@@ -76,15 +81,7 @@ def _build_caret_line(line: str, line_findings: list[Finding]) -> str:
     col_map: dict[int, Finding] = {}
     for f in line_findings:
         existing = col_map.get(f.col)
-        if (
-            existing is None
-            or (f.dangerous and not existing.dangerous)
-            or (
-                f.confusable is not None
-                and not existing.dangerous
-                and existing.confusable is None
-            )
-        ):
+        if existing is None or _is_more_severe(f, existing):
             col_map[f.col] = f
 
     # Walk through the line, tracking rendered position
@@ -103,7 +100,7 @@ def _build_caret_line(line: str, line_findings: list[Finding]) -> str:
                     marker = "^"
             markers.append((pos, marker))
 
-        pos += _rendered_width(ch)
+        pos += len(_render_invisible(ch))
 
     if not markers:
         return ""
@@ -188,30 +185,19 @@ def _collect_codepoints(
 
     When the same codepoint appears as both a normal finding and a confusable
     (or dangerous), the more informative classification wins.
+    Findings with line == 0 (read errors) are skipped.
     Returns a sorted list of (finding, count) tuples.
     """
     cp_counts: dict[int, tuple[Finding, int]] = {}
     for f in file_findings:
         if f.line == 0:
-            # Error finding (e.g., couldn't read file) -- printed separately
-            sys.stderr.write(f"  {f.name}\n")
             continue
         existing = cp_counts.get(f.codepoint)
         if existing is None:
             cp_counts[f.codepoint] = (f, 1)
         else:
             existing_f, n = existing
-            # Prefer dangerous > confusable > normal
-            best = (
-                f
-                if (f.dangerous and not existing_f.dangerous)
-                or (
-                    f.confusable is not None
-                    and not existing_f.dangerous
-                    and existing_f.confusable is None
-                )
-                else existing_f
-            )
+            best = f if _is_more_severe(f, existing_f) else existing_f
             cp_counts[f.codepoint] = (best, n + 1)
 
     return sorted(
@@ -268,6 +254,11 @@ def _print_file_findings(
         sys.stderr.write(f"  {rendered}\n")
         if caret:
             sys.stderr.write(f"  {caret}\n")
+
+    # Print error findings (line == 0, e.g. couldn't read file)
+    for f in file_findings:
+        if f.line == 0:
+            sys.stderr.write(f"  {f.name}\n")
 
     # List unique codepoints with counts
     for finding, count in _collect_codepoints(file_findings):
