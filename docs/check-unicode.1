@@ -1,6 +1,6 @@
 .\" Man page for check-unicode
 .\" Generate with: man ./docs/check-unicode.1
-.TH CHECK\-UNICODE 1 "2026-02-28" "check-unicode 0.4.0" "User Commands"
+.TH CHECK\-UNICODE 1 "2026-02-28" "check-unicode 0.5.0" "User Commands"
 .
 .SH NAME
 check\-unicode \- detect and fix non\-ASCII Unicode characters in text files
@@ -366,7 +366,7 @@ Use with pre\-commit:
 .RS
 repos:
   \- repo: https://github.com/mit\-d/check\-unicode
-    rev: v0.4.0
+    rev: v0.5.0
     hooks:
       \- id: check\-unicode
       # or for auto\-fix:
