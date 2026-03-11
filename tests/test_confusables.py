@@ -9,7 +9,7 @@ from unittest.mock import patch
 from check_unicode.checker import Finding, check_confusables, check_file
 from check_unicode.confusables import CONFUSABLES
 from check_unicode.main import main
-from check_unicode.output import _format_finding, print_findings
+from check_unicode.output import _format_codepoint_entry, print_findings
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -160,7 +160,7 @@ class TestConfusableOutput:
             dangerous=False,
             confusable="a",
         )
-        result = _format_finding(finding, color=False)
+        result = _format_codepoint_entry(finding, 1, color=False)
         assert "[CONFUSABLE: looks like 'a']" in result
 
     def test_confusable_format_with_color(self) -> None:
@@ -176,8 +176,8 @@ class TestConfusableOutput:
             dangerous=False,
             confusable="a",
         )
-        result = _format_finding(finding, color=True)
-        assert "[CONFUSABLE]" in result
+        result = _format_codepoint_entry(finding, 1, color=True)
+        assert "[CONFUSABLE: looks like 'a']" in result
         assert "\033[33m" in result  # yellow
 
     def test_confusable_summary_count(self) -> None:

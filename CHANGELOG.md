@@ -16,6 +16,13 @@
 - Exclude `tests/fixtures/` from mypy (intentionally malformed Trojan Source
   files)
 
+### Added
+
+- Grouped output: findings are now grouped per file with a compact line range
+  header (e.g. `file.txt:1,4-80,90:`), context lines shown once with multi-caret
+  markers (`^` normal, `!` dangerous, `?` confusable), deduplicated identical
+  context lines, and collapsed codepoint listing with `(xN)` counts
+
 ### Changed
 
 - Refactor `_apply_replacements` to use `str.translate()` for cleaner code and
