@@ -9,6 +9,11 @@ from pathlib import Path
 
 from check_unicode.categories import DANGEROUS_INVISIBLE, REPLACEMENT_TABLE
 
+# Pre-built translation table: all REPLACEMENT_TABLE entries that are NOT dangerous.
+_TRANSLATE_TABLE: dict[int, str] = {
+    cp: repl for cp, repl in REPLACEMENT_TABLE.items() if cp not in DANGEROUS_INVISIBLE
+}
+
 
 def fix_file(path: str | Path) -> bool:
     """Replace fixable Unicode characters in a file with ASCII equivalents.
@@ -55,13 +60,4 @@ def _apply_replacements(text: str) -> str:
 
     Skips dangerous invisible characters -- those are never auto-fixed.
     """
-    out: list[str] = []
-    for ch in text:
-        cp = ord(ch)
-        if cp in DANGEROUS_INVISIBLE:
-            out.append(ch)
-        elif cp in REPLACEMENT_TABLE:
-            out.append(REPLACEMENT_TABLE[cp])
-        else:
-            out.append(ch)
-    return "".join(out)
+    return text.translate(_TRANSLATE_TABLE)

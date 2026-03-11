@@ -55,7 +55,7 @@ UNICODE_CATEGORIES: dict[str, tuple[str, str]] = {
 }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Override:
     """Per-file override from [[tool.check-unicode.overrides]]."""
 
@@ -72,10 +72,10 @@ class Override:
 def _parse_codepoint(s: str) -> int:
     """Parse 'U+XXXX' or '0xXXXX' into an integer codepoint."""
     s = s.strip()
-    if s.upper().startswith("U+"):
-        return int(s.replace("U+", "0x", 1).replace("u+", "0x", 1), 0)
-    if s.lower().startswith("0x"):
-        return int(s, 0)
+    for prefix in ("U+", "u+", "0x", "0X"):
+        if s.startswith(prefix):
+            s = s[len(prefix) :]
+            break
     return int(s, 16)
 
 
@@ -139,6 +139,54 @@ def _allow_from_config(
     return codepoints, ranges, categories, printable, scripts
 
 
+_VALID_SEVERITIES: frozenset[str] = frozenset({"error", "warning"})
+
+_KNOWN_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "allow-codepoints",
+        "allow-ranges",
+        "allow-categories",
+        "allow-printable",
+        "allow-scripts",
+        "check-confusables",
+        "severity",
+        "exclude-patterns",
+        "overrides",
+    }
+)
+
+
+def _warn_unknown_keys(config: dict[str, Any]) -> None:
+    """Print warnings for unrecognised top-level config keys."""
+    unknown = set(config) - _KNOWN_CONFIG_KEYS
+    for key in sorted(unknown):
+        sys.stderr.write(f"warning: unknown config key {key!r}\n")
+
+
+_VALID_CATEGORIES: frozenset[str] = frozenset(UNICODE_CATEGORIES) | frozenset(
+    k[0] for k in UNICODE_CATEGORIES
+)
+
+
+def _validate_allow_values(
+    categories: set[str],
+    scripts: set[str],
+) -> None:
+    """Raise ``argparse.ArgumentTypeError`` for invalid categories or scripts."""
+    for cat in categories:
+        if cat not in _VALID_CATEGORIES:
+            msg = (
+                f"Unknown Unicode category {cat!r}; "
+                "use --list-categories to see valid values"
+            )
+            raise argparse.ArgumentTypeError(msg)
+
+    for script in scripts:
+        if script not in KNOWN_SCRIPTS:
+            msg = f"Unknown script {script!r}; use --list-scripts to see valid names"
+            raise argparse.ArgumentTypeError(msg)
+
+
 def _build_allow_config(
     args: argparse.Namespace,
     config: dict[str, Any],
@@ -160,6 +208,8 @@ def _build_allow_config(
         printable = True
     if args.allow_script:
         scripts.update(s.title() for s in args.allow_script)
+
+    _validate_allow_values(categories, scripts)
 
     return AllowConfig(
         codepoints=frozenset(codepoints),
@@ -459,6 +509,11 @@ def _build_overrides(config: dict[str, Any]) -> tuple[Override, ...]:
             True if printable_val else None if "allow-printable" not in entry else False
         )
         severity: str | None = entry.get("severity")
+        if severity is not None and severity not in {"error", "warning"}:
+            msg = (
+                f"Invalid override severity {severity!r}; must be 'error' or 'warning'"
+            )
+            raise ValueError(msg)
         check_confusables: bool | None = entry.get("check-confusables")
         overrides.append(
             Override(
@@ -558,13 +613,52 @@ def _scan_files(
             global_confusables=do_confusables,
             overrides=overrides,
         )
-        file_findings = check_file(filepath, file_allow)
+        try:
+            file_text = Path(filepath).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            file_text = None
+        file_findings = check_file(filepath, file_allow, text=file_text)
         if file_confusables:
-            file_findings.extend(check_confusables(filepath))
+            file_findings.extend(check_confusables(filepath, text=file_text))
         if file_findings and file_severity == "error":
             has_errors = True
         findings.extend(file_findings)
     return findings, has_errors
+
+
+def _load_and_validate_config(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], str, AllowConfig, bool, tuple[Override, ...]]:
+    """Load, validate and merge all configuration.
+
+    Returns (config, severity, allow, do_confusables, overrides).
+    Calls ``parser.error`` on invalid input.
+    """
+    try:
+        config = _load_config(args.config)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        parser.error(f"Cannot load config: {exc}")
+
+    _warn_unknown_keys(config)
+
+    severity = args.severity or config.get("severity", "error")
+    if severity not in _VALID_SEVERITIES:
+        parser.error(f"Invalid severity {severity!r}; must be 'error' or 'warning'")
+
+    try:
+        allow = _build_allow_config(args, config)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
+
+    do_confusables = args.check_confusables or config.get("check-confusables", False)
+
+    try:
+        overrides = _build_overrides(config)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    return config, severity, allow, do_confusables, overrides
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -583,11 +677,9 @@ def main(argv: list[str] | None = None) -> int:
     if not args.files:
         parser.error("No files specified.")
 
-    config = _load_config(args.config)
-    severity = args.severity or config.get("severity", "error")
-    allow = _build_allow_config(args, config)
-    do_confusables = args.check_confusables or config.get("check-confusables", False)
-    overrides = _build_overrides(config)
+    config, severity, allow, do_confusables, overrides = _load_and_validate_config(
+        parser, args
+    )
 
     # Filter out excluded files
     exclude_patterns = _build_exclude_patterns(args, config)

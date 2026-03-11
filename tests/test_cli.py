@@ -874,3 +874,96 @@ class TestOverrides:
 
         # Global severity is warning -> exit 0 even for unmatched files
         assert main(["--config", str(config), str(py_file)]) == 0
+
+
+class TestSeverityValidation:
+    """Tests for severity value validation."""
+
+    def test_invalid_severity_in_config(self, tmp_path: Path) -> None:
+        """Invalid severity in config file causes exit code 2."""
+        config = tmp_path / "config.toml"
+        config.write_text('severity = "warn"\n', encoding="utf-8")
+        f = tmp_path / "test.txt"
+        f.write_text("hello\n", encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--config", str(config), str(f)])
+        assert exc_info.value.code == 2
+
+    def test_invalid_severity_in_override(self, tmp_path: Path) -> None:
+        """Invalid severity in override causes exit code 2."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*"]\nseverity = "warn"\n',
+            encoding="utf-8",
+        )
+        f = tmp_path / "test.txt"
+        f.write_text("hello\n", encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--config", str(config), str(f)])
+        assert exc_info.value.code == 2
+
+
+class TestConfigErrorHandling:
+    """Tests for config file error handling."""
+
+    def test_missing_config_file(self, tmp_path: Path) -> None:
+        """Missing config file causes exit 2 with friendly message."""
+        f = tmp_path / "test.txt"
+        f.write_text("hello\n", encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--config", "/nonexistent/config.toml", str(f)])
+        assert exc_info.value.code == 2
+
+    def test_invalid_toml(self, tmp_path: Path) -> None:
+        """Invalid TOML causes exit 2 with friendly message."""
+        config = tmp_path / "bad.toml"
+        config.write_text("this is not valid toml [[[", encoding="utf-8")
+        f = tmp_path / "test.txt"
+        f.write_text("hello\n", encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--config", str(config), str(f)])
+        assert exc_info.value.code == 2
+
+
+class TestUnknownConfigKeys:
+    """Tests for unknown config key warnings."""
+
+    def test_unknown_key_warns(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Unknown config keys produce a warning on stderr."""
+        config = tmp_path / "config.toml"
+        config.write_text('alow-codepoints = ["U+00B0"]\n', encoding="utf-8")
+        f = tmp_path / "test.txt"
+        f.write_text("hello\n", encoding="utf-8")
+        main(["--config", str(config), str(f)])
+        err = capsys.readouterr().err
+        assert "unknown config key" in err
+        assert "alow-codepoints" in err
+
+
+class TestAllowValueValidation:
+    """Tests for --allow-category and --allow-script validation."""
+
+    def test_invalid_category(self, tmp_path: Path) -> None:
+        """Invalid category name causes exit 2."""
+        f = tmp_path / "test.txt"
+        f.write_text("hello\n", encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--allow-category", "Foo", str(f)])
+        assert exc_info.value.code == 2
+
+    def test_valid_major_category(self, tmp_path: Path) -> None:
+        """Major category prefix (single letter) is accepted."""
+        f = tmp_path / "test.txt"
+        f.write_text("\u00a9\n", encoding="utf-8")  # copyright sign, category So
+        # "S" should allow all Symbol categories
+        assert main(["--allow-category", "S", str(f)]) == 0
+
+    def test_invalid_script(self, tmp_path: Path) -> None:
+        """Invalid script name causes exit 2."""
+        f = tmp_path / "test.txt"
+        f.write_text("hello\n", encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--allow-script", "Klingon", str(f)])
+        assert exc_info.value.code == 2

@@ -57,6 +57,4 @@ REPLACEMENT_TABLE: dict[int, str] = {
     0x3000: " ",  # IDEOGRAPHIC SPACE
     # Ellipsis
     0x2026: "...",  # HORIZONTAL ELLIPSIS
-    # Replacement character
-    0xFFFD: "?",  # REPLACEMENT CHARACTER
 }
