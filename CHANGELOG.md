@@ -2,16 +2,36 @@
 
 ## Unreleased
 
+### Fixed
+
+- Validate `severity` values from config files and overrides (invalid values
+  like `"warn"` now exit 2 instead of silently behaving as warning)
+- Catch config file errors (missing file, invalid TOML) and exit 2 with a
+  friendly message instead of a raw traceback
+- Validate `--allow-category` and `--allow-script` values; unknown names now
+  exit 2 with a hint to use `--list-categories` or `--list-scripts`
+- Warn on unrecognised top-level config keys (e.g. typo `alow-codepoints`)
+- Remove dead `U+FFFD` entry from `REPLACEMENT_TABLE` (unreachable because
+  U+FFFD is in `DANGEROUS_INVISIBLE`, which is checked first)
+- Exclude `tests/fixtures/` from mypy (intentionally malformed Trojan Source
+  files)
+
+### Changed
+
+- Refactor `_apply_replacements` to use `str.translate()` for cleaner code and
+  better performance on large files
+- Read each file once when `--check-confusables` is enabled (previously
+  `check_file` and `check_confusables` each read the file independently)
+- Simplify `_parse_codepoint` to use prefix-stripping instead of fragile
+  double-replace chain
+- Add `slots=True` to `Override` dataclass for consistency with `Finding` and
+  `AllowConfig`
+
 ### Docs
 
 - Document per-file `[[tool.check-unicode.overrides]]` in README and man page
 - Update man page version to 0.4.0 and fix stale pre-commit `rev`
 - Add man page to `bump-my-version` files list
-
-### Fixed
-
-- Exclude `tests/fixtures/` from mypy (intentionally malformed Trojan Source
-  files)
 
 ## 0.4.0 - 2026-02-28
 

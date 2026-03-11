@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,50 +62,58 @@ def _is_allowed(cp: int, cat: str, allow: AllowConfig) -> bool:
         return True
     if cp in DANGEROUS_INVISIBLE:
         return False
-    if allow.printable and chr(cp).isprintable():
+
+    ch = chr(cp)
+    if allow.printable and ch.isprintable():
         return True
-    if allow.scripts and script_of(cp) in allow.scripts:
+
+    if allow.scripts:
+        script = script_of(cp)
+        if script in allow.scripts:
+            return True
+
+    if allow.ranges and any(lo <= cp <= hi for lo, hi in allow.ranges):
         return True
-    if any(lo <= cp <= hi for lo, hi in allow.ranges):
-        return True
-    return any(cat.startswith(prefix) for prefix in allow.categories)
+
+    return bool(allow.categories) and any(
+        cat.startswith(prefix) for prefix in allow.categories
+    )
 
 
 def _char_name(cp: int) -> str:
-    try:
-        return unicodedata.name(chr(cp))
-    except ValueError:
-        return f"U+{cp:04X}"
+    return unicodedata.name(chr(cp), f"U+{cp:04X}")
 
 
 def check_file(
     path: str | Path,
     allow: AllowConfig | None = None,
+    *,
+    text: str | None = None,
 ) -> list[Finding]:
     """Scan a file for non-ASCII characters, returning findings."""
     if allow is None:
         allow = AllowConfig()
     filepath = str(path)
-    try:
-        text = Path(path).read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError) as exc:
-        # Graceful handling of binary / unreadable files
-        return [
-            Finding(
-                file=filepath,
-                line=0,
-                col=0,
-                char="",
-                codepoint=0,
-                name=f"Could not read file: {exc}",
-                category="",
-                dangerous=False,
-            )
-        ]
+
+    if text is None:
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError) as exc:
+            return [
+                Finding(
+                    file=filepath,
+                    line=0,
+                    col=0,
+                    char="",
+                    codepoint=0,
+                    name=f"Could not read file: {exc}",
+                    category="",
+                    dangerous=False,
+                )
+            ]
 
     findings: list[Finding] = []
-    lines = text.splitlines()
-    for lineno, line in enumerate(lines, start=1):
+    for lineno, line in enumerate(text.splitlines(), start=1):
         for m in _ASCII_SAFE.finditer(line):
             col = m.start() + 1  # 1-indexed
             char = m.group()
@@ -152,9 +161,7 @@ def _check_line_confusables(
         return []
 
     # Count scripts to find dominant.
-    script_counts: dict[str, int] = {}
-    for _, _, script in letters:
-        script_counts[script] = script_counts.get(script, 0) + 1
+    script_counts = Counter(script for _, _, script in letters)
 
     if len(script_counts) < 2:  # noqa: PLR2004
         return []  # single script, no confusable risk
@@ -189,6 +196,8 @@ def _check_line_confusables(
 
 def check_confusables(
     path: str | Path,
+    *,
+    text: str | None = None,
 ) -> list[Finding]:
     """Detect mixed-script homoglyph/confusable characters in a file.
 
@@ -201,10 +210,12 @@ def check_confusables(
     --allow-script does NOT suppress confusable warnings.
     """
     filepath = str(path)
-    try:
-        text = Path(path).read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
-        return []
+
+    if text is None:
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            return []
 
     findings: list[Finding] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
