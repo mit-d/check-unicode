@@ -15,9 +15,8 @@ from check_unicode import __version__
 from check_unicode.checker import AllowConfig, Finding, check_confusables, check_file
 from check_unicode.fixer import fix_file
 from check_unicode.output import print_findings
+from check_unicode.parsing import parse_codepoint, parse_range
 from check_unicode.scripts import KNOWN_SCRIPTS
-
-_EXPECTED_RANGE_PARTS = 2
 
 # Unicode general categories: abbreviation -> (full name, description).
 # Covers all 30 categories from the Unicode standard.
@@ -69,25 +68,6 @@ class Override:
     check_confusables: bool | None  # None = inherit global
 
 
-def _parse_codepoint(s: str) -> int:
-    """Parse 'U+XXXX' or '0xXXXX' into an integer codepoint."""
-    s = s.strip()
-    for prefix in ("U+", "u+", "0x", "0X"):
-        if s.startswith(prefix):
-            s = s[len(prefix) :]
-            break
-    return int(s, 16)
-
-
-def _parse_range(s: str) -> tuple[int, int]:
-    """Parse 'U+XXXX-U+YYYY' into a (lo, hi) tuple."""
-    parts = s.split("-", 1)
-    if len(parts) != _EXPECTED_RANGE_PARTS:
-        msg = f"Invalid range: {s!r} (expected U+XXXX-U+YYYY)"
-        raise argparse.ArgumentTypeError(msg)
-    return _parse_codepoint(parts[0]), _parse_codepoint(parts[1])
-
-
 def _discover_config() -> dict[str, Any] | None:
     """Auto-discover .check-unicode.toml or [tool.check-unicode] in pyproject.toml."""
     cwd = Path.cwd()
@@ -128,10 +108,10 @@ def _allow_from_config(
 ) -> tuple[set[int], list[tuple[int, int]], set[str], bool, set[str]]:
     """Extract allow-lists from a parsed config dictionary."""
     codepoints: set[int] = {
-        _parse_codepoint(cp_str) for cp_str in config.get("allow-codepoints", [])
+        parse_codepoint(cp_str) for cp_str in config.get("allow-codepoints", [])
     }
     ranges: list[tuple[int, int]] = [
-        _parse_range(r_str) for r_str in config.get("allow-ranges", [])
+        parse_range(r_str) for r_str in config.get("allow-ranges", [])
     ]
     categories: set[str] = set(config.get("allow-categories", []))
     printable: bool = config.get("allow-printable", False)
@@ -199,9 +179,9 @@ def _build_allow_config(
     if args.allow_codepoint:
         for item in args.allow_codepoint:
             for cp_str in item.split(","):
-                codepoints.add(_parse_codepoint(cp_str))
+                codepoints.add(parse_codepoint(cp_str))
     if args.allow_range:
-        ranges.extend(_parse_range(r_str) for r_str in args.allow_range)
+        ranges.extend(parse_range(r_str) for r_str in args.allow_range)
     if args.allow_category:
         categories.update(args.allow_category)
     if args.allow_printable:
