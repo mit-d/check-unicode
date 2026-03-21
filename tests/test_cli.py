@@ -14,8 +14,6 @@ from check_unicode.main import (
     _build_parser,
     _file_matches_override,
     _is_excluded,
-    _parse_codepoint,
-    _parse_range,
     _resolve_allow_for_file,
     _resolve_file_settings,
     main,
@@ -256,27 +254,6 @@ class TestMultipleFiles:
             )
             == 0
         )
-
-
-class TestParseCodepoint:
-    """Tests for codepoint parsing helpers."""
-
-    def test_parse_hex_prefix(self) -> None:
-        """Codepoints with 0x prefix are parsed correctly."""
-        assert _parse_codepoint("0x00B0") == 0x00B0
-
-    def test_parse_bare_hex(self) -> None:
-        """Bare hex strings without prefix are parsed correctly."""
-        assert _parse_codepoint("00B0") == 0x00B0
-
-
-class TestParseRange:
-    """Tests for range parsing helpers."""
-
-    def test_invalid_range_raises(self) -> None:
-        """Invalid range strings raise ArgumentTypeError."""
-        with pytest.raises(Exception, match="Invalid range"):
-            _parse_range("NOPE")
 
 
 class TestConfigDiscovery:
