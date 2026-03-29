@@ -285,8 +285,9 @@ class _CheckUnicodeParser(argparse.ArgumentParser):
         args: Sequence[str] | None = None,
         namespace: argparse.Namespace | None = None,
     ) -> argparse.Namespace:
-        preprocessed = _preprocess_argv(list(args)) if args is not None else None
-        return super().parse_args(preprocessed, namespace)  # ty: ignore[invalid-return-type]
+        if args is None:
+            args = sys.argv[1:]
+        return super().parse_args(_preprocess_argv(list(args)), namespace)  # ty: ignore[invalid-return-type]
 
 
 def _build_parser() -> _CheckUnicodeParser:
