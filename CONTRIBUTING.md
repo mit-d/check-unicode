@@ -5,7 +5,7 @@ Thanks for your interest in contributing to `check-unicode`.
 ## Development setup
 
 ```bash
-uv venv && uv pip install -e ".[dev]"
+uv venv && uv sync --group dev
 ```
 
 ## Before submitting a PR
@@ -15,7 +15,7 @@ uv venv && uv pip install -e ".[dev]"
    ```bash
    pytest --cov=check_unicode
    ruff check src/ tests/
-   mypy src/
+   uvx ty check src/
    ```
 
 2. Add or update tests for any new behavior.

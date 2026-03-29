@@ -133,10 +133,10 @@ Found 5 non-ASCII characters in 2 files (3 fixable, 1 dangerous)
 ## Development
 
 ```bash
-uv venv && uv pip install -e ".[dev]"
+uv venv && uv sync --group dev
 .venv/bin/pytest -v --cov
 .venv/bin/ruff check src/ tests/
-.venv/bin/mypy src/
+uvx ty check src/
 ```
 
 ## License

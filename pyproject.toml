@@ -23,11 +23,19 @@ classifiers = [
   "Topic :: Software Development :: Quality Assurance",
 ]
 dynamic = [ "version" ]
-optional-dependencies.dev = [ "bump-my-version", "mypy", "pytest", "pytest-cov", "ruff" ]
 urls.Changelog = "https://github.com/mit-d/check-unicode/blob/main/CHANGELOG.md"
 urls.Issues = "https://github.com/mit-d/check-unicode/issues"
 urls.Repository = "https://github.com/mit-d/check-unicode"
 scripts.check-unicode = "check_unicode.main:main"
+
+[dependency-groups]
+dev = [
+  "bump-my-version",
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "ty",
+]
 
 [tool.hatch]
 build.targets.wheel.packages = [ "src/check_unicode" ]
@@ -74,7 +82,9 @@ files = [
   { filename = "docs/check-unicode.1", search = "rev: v{current_version}", replace = "rev: v{new_version}" },
 ]
 
-[tool.mypy]
-python_version = "3.11"
-strict = true
-exclude = [ "tests/fixtures/" ]
+[tool.ty]
+environment.python-version = "3.11"
+environment.extra-paths = [ "src" ]
+src.exclude = [ "tests/fixtures/" ]
+terminal.error-on-warning = true
+rules.all = "error"

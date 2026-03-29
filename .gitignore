@@ -6,7 +6,7 @@ dist/
 build/
 .venv/
 .pytest_cache/
-.mypy_cache/
+.ty/
 .ruff_cache/
 .coverage
 uv.lock

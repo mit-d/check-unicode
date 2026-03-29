@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Replace mypy with [ty](https://github.com/astral-sh/ty) for type checking
+- Move dev dependencies from `optional-dependencies` to `dependency-groups`
 - Extract codepoint/range parsing into `check_unicode.parsing` module for reuse
 - Codepoint parser now validates the Unicode range (0..U+10FFFF) and rejects
   empty/invalid input with clear error messages
