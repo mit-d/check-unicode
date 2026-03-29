@@ -317,11 +317,13 @@ Lines already flushed remain in the output.
 .B Smart quotes
 \(lq\(rq \(oq\(cq and variants \(-> replaced with ASCII quotes
 .TP
-.B Dashes
-Em dash (U+2014), en dash (U+2013), minus sign (U+2212) \(-> replaced with
-.B \-\-
-or
+.B Dashes and hyphens
+Em dash, en dash, figure dash, horizontal bar, minus sign, and other
+dash\-like characters \(-> replaced with
 .BR \- .
+.TP
+.B Soft hyphen
+U+00AD \(-> removed (invisible layout hint, not content).
 .TP
 .B Fancy spaces
 Non\-breaking space, em space, thin space, and 14 other Unicode space characters
@@ -330,6 +332,34 @@ Non\-breaking space, em space, thin space, and 14 other Unicode space characters
 .B Ellipsis
 Horizontal ellipsis (U+2026) \(-> replaced with
 .BR ... .
+.TP
+.B Bullets
+Bullet (U+2022), triangular bullet, hyphen bullet \(-> replaced with
+.B *
+or
+.BR \- .
+.TP
+.B Dot leaders
+One dot leader, two dot leader \(-> replaced with
+.B .
+or
+.BR .. .
+.TP
+.B Arrows
+\(-> and \(<- \(-> replaced with
+.B \->
+and
+.BR <\- ;
+\(ua and \(da \(-> replaced with
+.B ^
+and
+.BR v .
+.TP
+.B Math operators
+Multiplication sign (\(mu) \(-> replaced with
+.BR x ;
+division sign (\(di) and fraction slash \(-> replaced with
+.BR / .
 .
 .SS Dangerous invisible characters (never auto\-fixed)
 .TP

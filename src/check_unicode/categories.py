@@ -36,11 +36,17 @@ REPLACEMENT_TABLE: dict[int, str] = {
     0x201F: '"',  # DOUBLE HIGH-REVERSED-9 QUOTATION MARK
     0x00AB: '"',  # LEFT-POINTING DOUBLE ANGLE QUOTATION MARK
     0x00BB: '"',  # RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK
-    # Dashes
-    0x2013: "--",  # EN DASH
-    0x2014: "--",  # EM DASH
-    # Minus
+    # Dashes and hyphens
+    0x2010: "-",  # HYPHEN
+    0x2011: "-",  # NON-BREAKING HYPHEN
+    0x2012: "-",  # FIGURE DASH
+    0x2013: "-",  # EN DASH
+    0x2014: "-",  # EM DASH
+    0x2015: "-",  # HORIZONTAL BAR
     0x2212: "-",  # MINUS SIGN
+    0xFE58: "-",  # SMALL EM DASH
+    # Soft hyphen (invisible layout hint, not content)
+    0x00AD: "",  # SOFT HYPHEN
     # Fancy spaces -> regular space
     0x00A0: " ",  # NO-BREAK SPACE
     0x2000: " ",  # EN QUAD
@@ -57,4 +63,20 @@ REPLACEMENT_TABLE: dict[int, str] = {
     0x3000: " ",  # IDEOGRAPHIC SPACE
     # Ellipsis
     0x2026: "...",  # HORIZONTAL ELLIPSIS
+    # Bullets
+    0x2022: "*",  # BULLET
+    0x2023: "*",  # TRIANGULAR BULLET
+    0x2043: "-",  # HYPHEN BULLET
+    # Dot leaders
+    0x2024: ".",  # ONE DOT LEADER
+    0x2025: "..",  # TWO DOT LEADER
+    # Arrows
+    0x2190: "<-",  # LEFTWARDS ARROW
+    0x2192: "->",  # RIGHTWARDS ARROW
+    0x2191: "^",  # UPWARDS ARROW
+    0x2193: "v",  # DOWNWARDS ARROW
+    # Math operators
+    0x00D7: "x",  # MULTIPLICATION SIGN
+    0x00F7: "/",  # DIVISION SIGN
+    0x2044: "/",  # FRACTION SLASH
 }

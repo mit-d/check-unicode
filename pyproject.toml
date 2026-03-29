@@ -55,6 +55,7 @@ lint.ignore = [
   "ISC001", # single-line implicit string concat -- conflicts with formatter
 ]
 lint.per-file-ignores."tests/**" = [
+  "PLR0913", # test factory helpers mirror dataclass fields
   "PLR2004", # magic values in test assertions are readable
   "S101",    # assert is fine in tests
 ]
