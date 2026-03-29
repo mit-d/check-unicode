@@ -2,8 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- Pipe mode: `check-unicode -` reads stdin line-by-line and writes to stdout,
+  enabling use as a streaming Unix filter for log monitoring, CI pipelines, and
+  editor buffer filtering
+- `--strip [dangerous|all]` flag to remove non-ASCII characters; `dangerous`
+  strips only invisible/bidi chars, `all` (default) strips any remaining
+  non-ASCII after allow-list processing
+- `--halt [dangerous|all]` flag to stop immediately on first matching character;
+  `dangerous` (default) halts on invisible/bidi chars, `all` halts on any
+  non-ASCII
+- `--fix`, `--strip`, and `--halt` are fully composable and work identically
+  across file and pipe modes
+
 ### Changed
 
+- Add `pytest-sugar` for improved test output
 - Replace mypy with [ty](https://github.com/astral-sh/ty) for type checking
 - Move dev dependencies from `optional-dependencies` to `dependency-groups`
 - Switch CI from pip to uv for faster, reproducible installs; check in `uv.lock`

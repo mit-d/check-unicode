@@ -9,12 +9,15 @@ import textwrap
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 from check_unicode import __version__
 from check_unicode.checker import AllowConfig, Finding, check_confusables, check_file
-from check_unicode.fixer import fix_file
-from check_unicode.output import print_findings
+from check_unicode.fixer import _atomic_write, fix_text, strip_text
+from check_unicode.output import print_findings, print_line_findings
 from check_unicode.parsing import parse_codepoint, parse_range
 from check_unicode.scripts import KNOWN_SCRIPTS
 
@@ -238,7 +241,55 @@ def _print_categories() -> None:
     write(f"\nTotal: {len(UNICODE_CATEGORIES)} categories\n")
 
 
-def _build_parser() -> argparse.ArgumentParser:
+_OPTIONAL_LEVEL_FLAGS: tuple[tuple[str, frozenset[str], str], ...] = (
+    ("--strip", frozenset({"dangerous", "all"}), "all"),
+    ("--halt", frozenset({"dangerous", "all"}), "dangerous"),
+)
+
+
+def _preprocess_argv(args: list[str]) -> list[str]:
+    """Rewrite optional-level flags before argparse sees them.
+
+    ``nargs='?'`` with ``choices=`` causes argparse to greedily consume the
+    next positional token (e.g. a filename) as the flag value, then reject it
+    because it is not in *choices*.  We work around this by scanning the arg
+    list ourselves: if a level flag is followed by a valid choice we rewrite it
+    as ``--flag=VALUE``; if not we rewrite it as ``--flag=CONST`` so argparse
+    sees no separate token to consume.
+    """
+    result: list[str] = []
+    i = 0
+    while i < len(args):
+        matched = False
+        for flag, valid, const in _OPTIONAL_LEVEL_FLAGS:
+            if args[i] == flag:
+                if i + 1 < len(args) and args[i + 1] in valid:
+                    result.append(f"{flag}={args[i + 1]}")
+                    i += 2
+                else:
+                    result.append(f"{flag}={const}")
+                    i += 1
+                matched = True
+                break
+        if not matched:
+            result.append(args[i])
+            i += 1
+    return result
+
+
+class _CheckUnicodeParser(argparse.ArgumentParser):
+    """ArgumentParser that preprocesses optional-level flags."""
+
+    def parse_args(  # type: ignore[override]
+        self,
+        args: Sequence[str] | None = None,
+        namespace: argparse.Namespace | None = None,
+    ) -> argparse.Namespace:
+        preprocessed = _preprocess_argv(list(args)) if args is not None else None
+        return super().parse_args(preprocessed, namespace)  # ty: ignore[invalid-return-type]
+
+
+def _build_parser() -> _CheckUnicodeParser:
     """Build and return the CLI argument parser."""
     epilog = textwrap.dedent("""\
         examples:
@@ -255,6 +306,14 @@ def _build_parser() -> argparse.ArgumentParser:
                                              Warn without failing CI
           check-unicode --list-scripts       Show all valid script names
           check-unicode --list-categories    Show all valid category abbreviations
+          check-unicode - < file.txt         Read stdin, write to stdout
+          check-unicode --fix - < file.txt   Fix and write to stdout
+          check-unicode --fix --strip dangerous -
+                                             Fix fixable, strip bidi attacks
+          check-unicode --strip all src/     Strip all non-ASCII in-place
+          check-unicode --halt - < input.txt Halt on first dangerous char
+          check-unicode --fix --halt dangerous src/
+                                             Fix files, halt on dangerous
 
         configuration:
           Settings can be defined in .check-unicode.toml or pyproject.toml under
@@ -283,7 +342,7 @@ def _build_parser() -> argparse.ArgumentParser:
         copy-paste artifacts.  Use --fix to auto-replace known offenders with
         ASCII equivalents.  Dangerous characters are always flagged and never
         auto-fixed.""")
-    parser = argparse.ArgumentParser(
+    parser = _CheckUnicodeParser(
         prog="check-unicode",
         description=description,
         epilog=epilog,
@@ -293,7 +352,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "files",
         nargs="*",
         metavar="FILE",
-        help="files to check (one or more paths required)",
+        help="files to check; use - to read stdin and write to stdout",
     )
 
     # Allow-list options
@@ -441,6 +500,34 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     mode_group.add_argument(
+        "--strip",
+        nargs="?",
+        const="all",
+        default=None,
+        choices=["dangerous", "all"],
+        metavar="LEVEL",
+        help=(
+            "remove non-ASCII characters from output. "
+            "'all' (default) strips any remaining non-ASCII; "
+            "'dangerous' strips only invisible/bidi characters. "
+            "respects allow-lists"
+        ),
+    )
+    mode_group.add_argument(
+        "--halt",
+        nargs="?",
+        const="dangerous",
+        default=None,
+        choices=["dangerous", "all"],
+        metavar="LEVEL",
+        help=(
+            "stop immediately on first character matching the level. "
+            "'dangerous' (default) halts on invisible/bidi characters; "
+            "'all' halts on any non-ASCII. "
+            "exits 1 and reports the triggering finding"
+        ),
+    )
+    mode_group.add_argument(
         "-V",
         "--version",
         action="version",
@@ -570,40 +657,142 @@ def _resolve_file_settings(
     return severity, do_confusables
 
 
-def _scan_files(
-    files: list[str],
+_STDIN_NAME = "<stdin>"
+
+
+def _check_line(
+    line: str,
+    lineno: int,
     allow: AllowConfig,
-    overrides: tuple[Override, ...],
+    *,
+    do_confusables: bool,
+) -> list[Finding]:
+    """Check a single line and return findings with corrected line numbers."""
+    findings = check_file(_STDIN_NAME, allow, text=line)
+    if do_confusables:
+        findings.extend(check_confusables(_STDIN_NAME, text=line))
+    return [
+        Finding(
+            file=f.file,
+            line=lineno,
+            col=f.col,
+            char=f.char,
+            codepoint=f.codepoint,
+            name=f.name,
+            category=f.category,
+            dangerous=f.dangerous,
+            confusable=f.confusable,
+        )
+        if f.line != lineno
+        else f
+        for f in findings
+    ]
+
+
+def _transform_line(
+    line: str,
+    args: argparse.Namespace,
+    allow: AllowConfig,
+) -> tuple[str, bool]:
+    """Apply --fix and --strip transformations; return (output, was_modified)."""
+    output = line
+    modified = False
+    if args.fix:
+        fixed = fix_text(output)
+        if fixed != output:
+            modified = True
+            output = fixed
+    if args.strip:
+        stripped = strip_text(output, level=args.strip, allow=allow)
+        if stripped != output:
+            modified = True
+            output = stripped
+    return output, modified
+
+
+@dataclass(slots=True)
+class _PipeCounts:
+    """Running counters for pipe mode summary (avoids unbounded list)."""
+
+    total: int = 0
+    fixable: int = 0
+    dangerous: int = 0
+    confusable: int = 0
+    files: int = 1  # always 1 for stdin
+
+    def add(self, findings: list[Finding]) -> None:
+        self.total += len(findings)
+        for f in findings:
+            self.fixable += f.fixable
+            self.dangerous += f.dangerous
+            self.confusable += f.confusable is not None
+
+
+def _run_pipe(
+    args: argparse.Namespace,
+    allow: AllowConfig,
     *,
     do_confusables: bool,
     severity: str,
-) -> tuple[list[Finding], bool]:
-    """Scan files for non-ASCII and (optionally) confusable characters.
+) -> int:
+    """Handle pipe mode: stream stdin line-by-line to stdout."""
+    counts = _PipeCounts()
+    any_modified = False
+    halted = False
 
-    Returns (findings, has_errors) where has_errors is True if any finding
-    came from a file whose effective severity is "error".
-    """
-    findings: list[Finding] = []
-    has_errors = False
-    for filepath in files:
-        file_allow = _resolve_allow_for_file(filepath, allow, overrides)
-        file_severity, file_confusables = _resolve_file_settings(
-            filepath,
-            severity,
-            global_confusables=do_confusables,
-            overrides=overrides,
-        )
-        try:
-            file_text = Path(filepath).read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            file_text = None
-        file_findings = check_file(filepath, file_allow, text=file_text)
-        if file_confusables:
-            file_findings.extend(check_confusables(filepath, text=file_text))
-        if file_findings and file_severity == "error":
-            has_errors = True
-        findings.extend(file_findings)
-    return findings, has_errors
+    for lineno, raw_line in enumerate(sys.stdin, start=1):
+        line = raw_line.rstrip("\n")
+        has_newline = raw_line.endswith("\n")
+
+        line_findings = _check_line(line, lineno, allow, do_confusables=do_confusables)
+
+        if line_findings and not args.quiet:
+            print_line_findings(
+                _STDIN_NAME,
+                lineno,
+                line,
+                line_findings,
+                no_color=args.no_color,
+            )
+        counts.add(line_findings)
+
+        if args.halt and _findings_match_level(line_findings, args.halt):
+            halted = True
+            break
+
+        output_line, modified = _transform_line(line, args, allow)
+        if modified:
+            any_modified = True
+
+        sys.stdout.write(output_line + ("\n" if has_newline else ""))
+        sys.stdout.flush()
+
+    if counts.total:
+        _print_pipe_summary(counts)
+
+    if halted or any_modified:
+        return 1
+    if counts.total and severity == "error":
+        return 1
+    return 0
+
+
+def _print_pipe_summary(counts: _PipeCounts) -> None:
+    """Print summary line for pipe mode from running counters."""
+    parts = [
+        f"Found {counts.total} non-ASCII character{'s' if counts.total != 1 else ''}"
+    ]
+    parts.append(f"in {counts.files} file{'s' if counts.files != 1 else ''}")
+    extras = []
+    if counts.fixable:
+        extras.append(f"{counts.fixable} fixable")
+    if counts.dangerous:
+        extras.append(f"{counts.dangerous} dangerous")
+    if counts.confusable:
+        extras.append(f"{counts.confusable} confusable")
+    if extras:
+        parts.append(f"({', '.join(extras)})")
+    sys.stderr.write(" ".join(parts) + "\n")
 
 
 def _load_and_validate_config(
@@ -641,17 +830,87 @@ def _load_and_validate_config(
     return config, severity, allow, do_confusables, overrides
 
 
+@dataclass(frozen=True, slots=True)
+class _ScanConfig:
+    """Bundled scan configuration passed to _process_files."""
+
+    allow: AllowConfig
+    overrides: tuple[Override, ...]
+    severity: str
+    do_confusables: bool
+
+
+def _findings_match_level(findings: list[Finding], level: str) -> bool:
+    """Check if any finding matches the halt/strip level."""
+    if level == "dangerous":
+        return any(f.dangerous for f in findings)
+    return bool(findings)
+
+
+def _process_files(
+    files: list[str],
+    args: argparse.Namespace,
+    cfg: _ScanConfig,
+) -> tuple[list[Finding], bool, bool, bool]:
+    """Process files one at a time, respecting --halt, --fix, and --strip.
+
+    Returns (all_findings, has_errors, any_modified, halted) where
+    ``halted`` is True if processing stopped early due to --halt.
+    """
+    all_findings: list[Finding] = []
+    has_errors = False
+    any_modified = False
+
+    for filepath in files:
+        file_allow = _resolve_allow_for_file(filepath, cfg.allow, cfg.overrides)
+        file_severity, file_confusables = _resolve_file_settings(
+            filepath,
+            cfg.severity,
+            global_confusables=cfg.do_confusables,
+            overrides=cfg.overrides,
+        )
+        try:
+            file_text: str | None = Path(filepath).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            file_text = None
+
+        file_findings = check_file(filepath, file_allow, text=file_text)
+        if file_confusables:
+            file_findings.extend(check_confusables(filepath, text=file_text))
+
+        if args.halt and _findings_match_level(file_findings, args.halt):
+            all_findings.extend(file_findings)
+            return all_findings, has_errors, any_modified, True
+
+        if file_text is not None and (args.fix or args.strip):
+            modified = file_text
+            if args.fix:
+                modified = fix_text(modified)
+            if args.strip:
+                modified = strip_text(modified, level=args.strip, allow=file_allow)
+            if modified != file_text:
+                any_modified = True
+                filepath_p = Path(filepath)
+                _atomic_write(filepath_p, modified, filepath_p.stat().st_mode)
+
+        if file_findings and file_severity == "error":
+            has_errors = True
+        all_findings.extend(file_findings)
+
+    return all_findings, has_errors, any_modified, False
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the check-unicode CLI."""
     parser = _build_parser()
     args = parser.parse_args(argv)
 
     # Informational flags that exit immediately
-    if args.list_scripts:
-        _print_scripts()
-        return 0
-    if args.list_categories:
-        _print_categories()
+    if args.list_scripts or args.list_categories:
+        if args.list_scripts:
+            _print_scripts()
+        else:
+            _print_categories()
         return 0
 
     if not args.files:
@@ -661,6 +920,9 @@ def main(argv: list[str] | None = None) -> int:
         parser, args
     )
 
+    if args.files == ["-"]:
+        return _run_pipe(args, allow, do_confusables=do_confusables, severity=severity)
+
     # Filter out excluded files
     exclude_patterns = _build_exclude_patterns(args, config)
     files = [f for f in args.files if not _is_excluded(f, exclude_patterns)]
@@ -668,26 +930,22 @@ def main(argv: list[str] | None = None) -> int:
     if not files:
         return 0
 
-    # Fix mode
-    if args.fix:
-        fixed = [fix_file(filepath) for filepath in files]
-        any_fixed = any(fixed)
-        all_findings, has_errors = _scan_files(
-            files, allow, overrides, do_confusables=do_confusables, severity=severity
-        )
-        if all_findings:
-            print_findings(all_findings, no_color=args.no_color, quiet=args.quiet)
-        return 1 if any_fixed or all_findings else 0
-
-    # Check mode
-    all_findings, has_errors = _scan_files(
-        files, allow, overrides, do_confusables=do_confusables, severity=severity
+    scan_cfg = _ScanConfig(
+        allow=allow,
+        overrides=overrides,
+        severity=severity,
+        do_confusables=do_confusables,
     )
+    all_findings, has_errors, any_modified, halted = _process_files(
+        files, args, scan_cfg
+    )
+
     if all_findings:
         print_findings(all_findings, no_color=args.no_color, quiet=args.quiet)
-        return 1 if has_errors else 0
 
-    return 0
+    if halted or any_modified:
+        return 1
+    return 1 if has_errors else 0
 
 
 if __name__ == "__main__":

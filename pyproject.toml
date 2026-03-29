@@ -33,6 +33,7 @@ dev = [
   "bump-my-version",
   "pytest",
   "pytest-cov",
+  "pytest-sugar>=1.1.1",
   "ruff",
   "ty",
 ]
