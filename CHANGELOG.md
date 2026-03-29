@@ -18,6 +18,10 @@
 
 ### Changed
 
+- En dash and em dash now replace to `-` instead of `--`
+- Expanded `--fix` replacement table with: hyphen variants (U+2010-2012, U+2015,
+  U+FE58), soft hyphen (removed), bullets, dot leaders, arrows (`->`, `<-`, `^`,
+  `v`), and math operators (`x`, `/`)
 - Add `pytest-sugar` for improved test output
 - Replace mypy with [ty](https://github.com/astral-sh/ty) for type checking
 - Move dev dependencies from `optional-dependencies` to `dependency-groups`

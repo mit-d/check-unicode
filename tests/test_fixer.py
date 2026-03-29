@@ -116,8 +116,8 @@ class TestFixText:
             ("\u201equote\u201f", '"quote"'),
             ("\u00abguillemet\u00bb", '"guillemet"'),
             ("\u2039angle\u203a", "'angle'"),
-            ("word\u2014word", "word--word"),
-            ("1\u20132", "1--2"),
+            ("word\u2014word", "word-word"),
+            ("1\u20132", "1-2"),
             ("x \u2212 y", "x - y"),
             ("hello\u00a0world", "hello world"),
             ("a\u2003b", "a b"),
@@ -125,6 +125,24 @@ class TestFixText:
             ("a\u200ab", "a b"),
             ("a\u3000b", "a b"),
             ("wait\u2026", "wait..."),
+            ("a\u2010b", "a-b"),
+            ("a\u2011b", "a-b"),
+            ("a\u2012b", "a-b"),
+            ("a\u2015b", "a-b"),
+            ("a\ufe58b", "a-b"),
+            ("soft\u00adhyphen", "softhyphen"),
+            ("\u2022 item", "* item"),
+            ("\u2023 item", "* item"),
+            ("\u2043 item", "- item"),
+            ("ch\u20241", "ch.1"),
+            ("ch\u20251", "ch..1"),
+            ("a \u2192 b", "a -> b"),
+            ("b \u2190 a", "b <- a"),
+            ("\u2191up", "^up"),
+            ("\u2193down", "vdown"),
+            ("2 \u00d7 3", "2 x 3"),
+            ("6 \u00f7 2", "6 / 2"),
+            ("1\u20442", "1/2"),
         ],
         ids=[
             "smart-double-quotes",
@@ -143,6 +161,24 @@ class TestFixText:
             "hair-space",
             "ideographic-space",
             "ellipsis",
+            "hyphen",
+            "non-breaking-hyphen",
+            "figure-dash",
+            "horizontal-bar",
+            "small-em-dash",
+            "soft-hyphen",
+            "bullet",
+            "triangular-bullet",
+            "hyphen-bullet",
+            "one-dot-leader",
+            "two-dot-leader",
+            "right-arrow",
+            "left-arrow",
+            "up-arrow",
+            "down-arrow",
+            "multiplication-sign",
+            "division-sign",
+            "fraction-slash",
         ],
     )
     def test_fix_replaces_character(self, input_text: str, expected: str) -> None:
@@ -169,7 +205,7 @@ class TestFixText:
     def test_multiline_text(self) -> None:
         """fix_text handles multi-line strings correctly."""
         text = "line1 \u201chi\u201d\nline2 word\u2014word\nline3 wait\u2026\n"
-        expected = 'line1 "hi"\nline2 word--word\nline3 wait...\n'
+        expected = 'line1 "hi"\nline2 word-word\nline3 wait...\n'
         assert fix_text(text) == expected
 
 
@@ -182,8 +218,8 @@ class TestFixFileReplacements:
             ("\u201chello\u201d", '"hello"'),
             ("It\u2019s", "It's"),
             ("\u2018word\u2019", "'word'"),
-            ("word\u2014word", "word--word"),
-            ("1\u20132", "1--2"),
+            ("word\u2014word", "word-word"),
+            ("1\u20132", "1-2"),
             ("x \u2212 y", "x - y"),
             ("hello\u00a0world", "hello world"),
             ("a\u2003b", "a b"),

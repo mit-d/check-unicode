@@ -121,7 +121,7 @@ class TestFixMode:
         f2.write_text("word\u2014word\n", encoding="utf-8")
         assert main(["--fix", str(f1), str(f2)]) == 1
         assert f1.read_text(encoding="utf-8") == 'He said "hello"\n'
-        assert f2.read_text(encoding="utf-8") == "word--word\n"
+        assert f2.read_text(encoding="utf-8") == "word-word\n"
 
     def test_fix_dangerous_still_reported(self, tmp_path: Path) -> None:
         """Fix mode does not remove dangerous characters."""
