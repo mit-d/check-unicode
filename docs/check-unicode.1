@@ -33,8 +33,12 @@ hook but also works as a standalone CLI tool.
 .TP
 .I FILE ...
 One or more files to check.
-At least one file is required; the program exits with code\ 2 if none are
-provided.
+Use
+.B \-
+to read from stdin and write to stdout (pipe mode).
+At least one file or
+.B \-
+is required; the program exits with code\ 2 if none are provided.
 .
 .SH OPTIONS
 .SS Mode
@@ -44,6 +48,32 @@ Replace known offenders (smart quotes, en/em dashes, fancy spaces, ellipsis)
 with their ASCII equivalents using an atomic write (temp file + rename).
 Exits\ 1 if any file was modified.
 Dangerous invisible characters are never auto\-fixed.
+.TP
+.BI \-\-strip " [LEVEL]"
+Remove non\-ASCII characters from output.
+.I LEVEL
+is
+.B dangerous
+(only invisible/bidi characters) or
+.B all
+(any remaining non\-ASCII after allow\-list processing).
+Default:
+.BR all .
+Respects allow\-lists.
+In file mode, modifies files in\-place; in pipe mode, writes stripped
+output to stdout.
+.TP
+.BI \-\-halt " [LEVEL]"
+Stop immediately on the first character matching the level.
+.I LEVEL
+is
+.B dangerous
+or
+.BR all .
+Default:
+.BR dangerous .
+Reports the triggering finding on stderr and exits\ 1.
+The triggering file is never modified.
 .TP
 .BR \-V ", " \-\-version
 Print the program version and exit.
@@ -243,12 +273,43 @@ severity is
 or per\-file via overrides).
 .TP
 .B 1
-Non\-ASCII findings were detected, or files were modified in
-.B \-\-fix
-mode.
+Non\-ASCII findings were detected, files were modified by
+.BR \-\-fix / \-\-strip ,
+or
+.B \-\-halt
+was triggered.
 .TP
 .B 2
 Usage error (invalid arguments, no files specified, etc.).
+.
+.SH PIPE MODE
+When
+.B \-
+is given as the sole file argument,
+.B check\-unicode
+reads from stdin and writes to stdout, acting as a streaming Unix filter.
+.PP
+Input is processed line\-by\-line.
+For each line, findings are emitted to stderr immediately with full
+context display (rendered source line, caret markers, codepoint details).
+The processed line is written to stdout and flushed so downstream
+consumers see output in real time.
+.PP
+.BR \-\-fix ", " \-\-strip ", and " \-\-halt
+all work in pipe mode.
+The processing order per character is:
+allow\-list check, then
+.BR \-\-fix ,
+then
+.BR \-\-halt ,
+then
+.BR \-\-strip .
+.PP
+When
+.B \-\-halt
+triggers, the current line is not written to stdout and the program
+exits immediately.
+Lines already flushed remain in the output.
 .
 .SH WHAT IT CATCHES
 .SS Copy\-paste artifacts (fixable with \-\-fix)
@@ -358,6 +419,36 @@ List all valid Unicode general categories:
 .PP
 .RS
 .B check\-unicode \-\-list\-categories
+.RE
+.PP
+Read from stdin, write to stdout (pipe mode):
+.PP
+.RS
+.B check\-unicode \- < file.txt
+.RE
+.PP
+Fix smart quotes and strip dangerous chars from a pipe:
+.PP
+.RS
+.B check\-unicode \-\-fix \-\-strip dangerous \- < file.txt
+.RE
+.PP
+Halt on first dangerous character in stdin:
+.PP
+.RS
+.B check\-unicode \-\-halt \- < input.txt
+.RE
+.PP
+Stream\-filter logs, fixing and stripping bidi attacks:
+.PP
+.RS
+.B tail \-f app.log | check\-unicode \-\-fix \-\-strip dangerous \-
+.RE
+.PP
+Strip all non\-ASCII from files in\-place:
+.PP
+.RS
+.B check\-unicode \-\-strip all src/
 .RE
 .PP
 Use with pre\-commit:

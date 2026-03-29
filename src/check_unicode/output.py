@@ -156,7 +156,7 @@ def _format_codepoint_entry(
     return f"{prefix}{cp_part} {finding.name} {cat_part}{count_str}"
 
 
-def _print_summary(findings: list[Finding]) -> None:
+def print_summary(findings: list[Finding]) -> None:
     """Print a summary line of finding counts to stderr."""
     n_files = len({f.file for f in findings})
     n_fixable = sum(1 for f in findings if f.fixable)
@@ -210,11 +210,43 @@ def _collect_codepoints(
     )
 
 
+def _resolve_file_lines(filepath: str, text: str | None) -> list[str]:
+    """Return source lines from *text* if provided, else read *filepath* from disk."""
+    if text is not None:
+        return text.splitlines()
+    try:
+        return Path(filepath).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+
+
+def _print_line_context(
+    line: str,
+    line_findings: list[Finding],
+    *,
+    color: bool,
+    show_codepoints: bool = False,
+) -> None:
+    """Print rendered context for a single source line."""
+    rendered = _render_invisible(line)
+    caret = _build_caret_line(line, line_findings)
+
+    sys.stderr.write(f"  {rendered}\n")
+    if caret:
+        sys.stderr.write(f"  {caret}\n")
+
+    if show_codepoints:
+        for finding, count in _collect_codepoints(line_findings):
+            entry = _format_codepoint_entry(finding, count, color=color)
+            sys.stderr.write(f"  {entry}\n")
+
+
 def _print_file_findings(
     filepath: str,
     file_findings: list[Finding],
     *,
     color: bool,
+    text: str | None = None,
 ) -> None:
     """Print grouped output for a single file."""
     # Build compact line ranges for header
@@ -225,12 +257,7 @@ def _print_file_findings(
     header = f"{filepath}:{ranges_str}:" if ranges_str else f"{filepath}:"
     sys.stderr.write(header + "\n")
 
-    # Read file for context display
-    try:
-        text = Path(filepath).read_text(encoding="utf-8")
-        file_lines = text.splitlines()
-    except (OSError, UnicodeDecodeError):
-        file_lines = []
+    file_lines = _resolve_file_lines(filepath, text)
 
     # Group findings by line number
     by_line: dict[int, list[Finding]] = {}
@@ -251,16 +278,14 @@ def _print_file_findings(
             continue
         seen_contexts.add(context_key)
 
-        sys.stderr.write(f"  {rendered}\n")
-        if caret:
-            sys.stderr.write(f"  {caret}\n")
+        _print_line_context(line, by_line[lineno], color=color)
 
     # Print error findings (line == 0, e.g. couldn't read file)
     for f in file_findings:
         if f.line == 0:
             sys.stderr.write(f"  {f.name}\n")
 
-    # List unique codepoints with counts
+    # List unique codepoints with counts across all findings for this file
     for finding, count in _collect_codepoints(file_findings):
         entry = _format_codepoint_entry(finding, count, color=color)
         sys.stderr.write(f"  {entry}\n")
@@ -286,4 +311,25 @@ def print_findings(
         for filepath, file_findings in by_file.items():
             _print_file_findings(filepath, file_findings, color=color)
 
-    _print_summary(findings)
+    print_summary(findings)
+
+
+def print_line_findings(
+    filepath: str,
+    lineno: int,
+    line: str,
+    findings: list[Finding],
+    *,
+    no_color: bool = False,
+) -> None:
+    """Print findings for a single line immediately.
+
+    Used by streaming pipe mode to emit per-line diagnostics.
+    """
+    color = _use_color(no_color=no_color)
+
+    sys.stderr.write(f"{filepath}:{lineno}:\n")
+
+    _print_line_context(line, findings, color=color, show_codepoints=True)
+
+    sys.stderr.write("\n")

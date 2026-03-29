@@ -163,8 +163,8 @@ def _check_line_confusables(
     # Count scripts to find dominant.
     script_counts = Counter(script for _, _, script in letters)
 
-    if len(script_counts) < 2:  # noqa: PLR2004
-        return []  # single script, no confusable risk
+    if len(script_counts) <= 1:
+        return []
 
     # Dominant script: highest count, tie-break to Latin.
     max_count = max(script_counts.values())

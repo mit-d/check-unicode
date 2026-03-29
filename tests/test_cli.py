@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import io
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from check_unicode.checker import AllowConfig
 from check_unicode.main import (
@@ -20,6 +25,51 @@ from check_unicode.main import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture
+def smart_quotes_file(tmp_path: Path) -> Path:
+    """File containing smart quotes (fixable characters)."""
+    f = tmp_path / "smart.txt"
+    f.write_text("He said \u201chello\u201d\n", encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def accented_file(tmp_path: Path) -> Path:
+    """File containing accented characters (non-fixable, non-dangerous)."""
+    f = tmp_path / "accented.txt"
+    f.write_text("caf\u00e9\n", encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def dangerous_file(tmp_path: Path) -> Path:
+    """File containing dangerous bidi characters."""
+    f = tmp_path / "bidi.txt"
+    f.write_text("x\u202ey\n", encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def mixed_file(tmp_path: Path) -> Path:
+    """File with fixable, non-fixable, and dangerous characters."""
+    f = tmp_path / "mixed.txt"
+    f.write_text("caf\u00e9 said \u201chi\u201d x\u202ey\n", encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def stdin_from(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
+    """Fixture that sets sys.stdin to read from a string."""
+
+    def _set(text: str) -> None:
+        monkeypatch.setattr(
+            "sys.stdin",
+            io.TextIOWrapper(io.BytesIO(text.encode("utf-8"))),
+        )
+
+    return _set
 
 
 class TestExitCodes:
@@ -498,6 +548,27 @@ class TestHelpOutput:
         assert "--list-scripts" in out
         assert "--list-categories" in out
 
+    def test_help_contains_strip_and_halt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Help output documents --strip and --halt flags."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "--strip" in out
+        assert "--halt" in out
+        assert "dangerous" in out.lower()
+
+    def test_help_contains_pipe_examples(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Help output includes pipe mode examples with new flags."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "check-unicode -" in out
+        assert "--strip" in out
+
 
 class TestListScripts:
     """Tests for the --list-scripts flag."""
@@ -944,3 +1015,518 @@ class TestAllowValueValidation:
         with pytest.raises(SystemExit) as exc_info:
             main(["--allow-script", "Klingon", str(f)])
         assert exc_info.value.code == 2
+
+
+class TestPipeMode:
+    """Tests for pipe mode: reading from stdin via `-`."""
+
+    def test_dash_clean_input_passes_through(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Clean ASCII input is passed through to stdout unchanged, exit 0."""
+        monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"hello world\n")))
+        assert main(["-"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == "hello world\n"
+
+    def test_dash_dirty_input_passes_through_with_findings(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Non-ASCII input passes through to stdout, findings on stderr."""
+        text = "He said \u201chello\u201d\n"
+        monkeypatch.setattr(
+            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
+        )
+        assert main(["-"]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == text
+        assert "U+201C" in captured.err
+
+    def test_dash_fix_mode_writes_fixed_to_stdout(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Fix mode replaces smart quotes and writes fixed text to stdout."""
+        text = "He said \u201chello\u201d\n"
+        monkeypatch.setattr(
+            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
+        )
+        assert main(["--fix", "-"]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == 'He said "hello"\n'
+
+    def test_dash_fix_mode_clean_input(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Fix mode with clean input passes through unchanged, exit 0."""
+        monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"clean\n")))
+        assert main(["--fix", "-"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == "clean\n"
+
+    def test_dash_fix_mode_dangerous_still_reported(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Fix mode preserves dangerous chars in output and stderr."""
+        text = "x\u202ey\n"
+        monkeypatch.setattr(
+            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
+        )
+        result = main(["--fix", "-"])
+        assert result == 1
+        captured = capsys.readouterr()
+        # Dangerous char preserved in output
+        assert "\u202e" in captured.out
+        assert "DANGEROUS" in captured.err
+
+    def test_dash_with_allow_flags(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Allow flags work with pipe mode."""
+        text = "72\u00b0F\n"
+        monkeypatch.setattr(
+            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
+        )
+        assert main(["--allow-codepoint", "U+00B0", "-"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == text
+
+    def test_dash_filename_in_findings(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Findings use '<stdin>' as the filename."""
+        text = "\u201chello\u201d\n"
+        monkeypatch.setattr(
+            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
+        )
+        main(["-"])
+        captured = capsys.readouterr()
+        assert "<stdin>" in captured.err
+
+
+class TestStripAndHaltFlags:
+    """Tests for --strip and --halt flag parsing."""
+
+    def test_strip_default_level(self) -> None:
+        """--strip with no argument defaults to 'all'."""
+        parser = _build_parser()
+        args = parser.parse_args(["--strip", "test.txt"])
+        assert args.strip == "all"
+
+    def test_strip_explicit_dangerous(self) -> None:
+        """--strip dangerous sets level to 'dangerous'."""
+        parser = _build_parser()
+        args = parser.parse_args(["--strip", "dangerous", "test.txt"])
+        assert args.strip == "dangerous"
+
+    def test_strip_explicit_all(self) -> None:
+        """--strip all sets level to 'all'."""
+        parser = _build_parser()
+        args = parser.parse_args(["--strip", "all", "test.txt"])
+        assert args.strip == "all"
+
+    def test_halt_default_level(self) -> None:
+        """--halt with no argument defaults to 'dangerous'."""
+        parser = _build_parser()
+        args = parser.parse_args(["--halt", "test.txt"])
+        assert args.halt == "dangerous"
+
+    def test_halt_explicit_all(self) -> None:
+        """--halt all sets level to 'all'."""
+        parser = _build_parser()
+        args = parser.parse_args(["--halt", "all", "test.txt"])
+        assert args.halt == "all"
+
+    def test_halt_explicit_dangerous(self) -> None:
+        """--halt dangerous sets level to 'dangerous'."""
+        parser = _build_parser()
+        args = parser.parse_args(["--halt", "dangerous", "test.txt"])
+        assert args.halt == "dangerous"
+
+    def test_strip_and_halt_together(self) -> None:
+        """--strip and --halt can be combined."""
+        parser = _build_parser()
+        args = parser.parse_args(["--strip", "all", "--halt", "dangerous", "test.txt"])
+        assert args.strip == "all"
+        assert args.halt == "dangerous"
+
+    def test_fix_strip_halt_together(self) -> None:
+        """All three action flags can be combined."""
+        parser = _build_parser()
+        args = parser.parse_args(
+            [
+                "--fix",
+                "--strip",
+                "dangerous",
+                "--halt",
+                "dangerous",
+                "test.txt",
+            ]
+        )
+        assert args.fix is True
+        assert args.strip == "dangerous"
+        assert args.halt == "dangerous"
+
+    def test_no_strip_defaults_none(self) -> None:
+        """Without --strip, args.strip is None."""
+        parser = _build_parser()
+        args = parser.parse_args(["test.txt"])
+        assert args.strip is None
+
+    def test_no_halt_defaults_none(self) -> None:
+        """Without --halt, args.halt is None."""
+        parser = _build_parser()
+        args = parser.parse_args(["test.txt"])
+        assert args.halt is None
+
+
+class TestStripFileMode:
+    """Tests for --strip on files."""
+
+    def test_strip_all_removes_non_ascii(self, accented_file: Path) -> None:
+        """--strip all removes non-fixable non-ASCII from file."""
+        assert main(["--strip", "all", str(accented_file)]) == 1
+        assert accented_file.read_text(encoding="utf-8") == "caf\n"
+
+    def test_strip_dangerous_only(self, dangerous_file: Path) -> None:
+        """--strip dangerous removes only dangerous chars."""
+        assert main(["--strip", "dangerous", str(dangerous_file)]) == 1
+        assert dangerous_file.read_text(encoding="utf-8") == "xy\n"
+
+    def test_strip_dangerous_keeps_accented(self, accented_file: Path) -> None:
+        """--strip dangerous does not remove accented characters."""
+        assert main(["--strip", "dangerous", str(accented_file)]) == 1
+        content = accented_file.read_text(encoding="utf-8")
+        assert "\u00e9" in content
+
+    def test_fix_strip_combined(self, mixed_file: Path) -> None:
+        """--fix --strip all fixes fixable, strips the rest."""
+        assert main(["--fix", "--strip", "all", str(mixed_file)]) == 1
+        content = mixed_file.read_text(encoding="utf-8")
+        assert content == 'caf said "hi" xy\n'
+
+    def test_fix_strip_dangerous(self, mixed_file: Path) -> None:
+        """--fix --strip dangerous fixes fixable, strips dangerous."""
+        assert main(["--fix", "--strip", "dangerous", str(mixed_file)]) == 1
+        content = mixed_file.read_text(encoding="utf-8")
+        assert content == 'caf\u00e9 said "hi" xy\n'
+
+    def test_strip_clean_file_exits_0(self, tmp_path: Path) -> None:
+        """--strip on a clean file exits 0 with no changes."""
+        f = tmp_path / "clean.txt"
+        f.write_text("hello world\n", encoding="utf-8")
+        assert main(["--strip", str(f)]) == 0
+
+    def test_strip_respects_allow_codepoint(self, accented_file: Path) -> None:
+        """--strip all respects --allow-codepoint."""
+        assert (
+            main(
+                [
+                    "--strip",
+                    "all",
+                    "--allow-codepoint",
+                    "U+00E9",
+                    str(accented_file),
+                ]
+            )
+            == 0
+        )
+        content = accented_file.read_text(encoding="utf-8")
+        assert content == "caf\u00e9\n"
+
+
+class TestHaltFileMode:
+    """Tests for --halt on files."""
+
+    def test_halt_dangerous_stops_on_bidi(self, dangerous_file: Path) -> None:
+        """--halt dangerous exits 1 on dangerous character."""
+        assert main(["--halt", str(dangerous_file)]) == 1
+
+    def test_halt_dangerous_ignores_accented(self, accented_file: Path) -> None:
+        """--halt dangerous does not trigger halt on accented chars."""
+        # Still exits 1 because findings exist, but no halt behavior
+        assert main(["--halt", str(accented_file)]) == 1
+
+    def test_halt_all_stops_on_any_non_ascii(self, accented_file: Path) -> None:
+        """--halt all exits 1 on any non-ASCII."""
+        assert main(["--halt", "all", str(accented_file)]) == 1
+
+    def test_halt_does_not_modify_file(self, dangerous_file: Path) -> None:
+        """--halt with --fix does not write the halting file."""
+        original = dangerous_file.read_text(encoding="utf-8")
+        main(["--fix", "--halt", str(dangerous_file)])
+        assert dangerous_file.read_text(encoding="utf-8") == original
+
+    def test_halt_skips_remaining_files(
+        self, dangerous_file: Path, tmp_path: Path
+    ) -> None:
+        """--halt stops processing remaining files after trigger."""
+        second = tmp_path / "second.txt"
+        second.write_text("\u201chello\u201d\n", encoding="utf-8")
+        original_second = second.read_text(encoding="utf-8")
+        main(["--fix", "--halt", str(dangerous_file), str(second)])
+        assert second.read_text(encoding="utf-8") == original_second
+
+    def test_halt_respects_allow_codepoint(self, dangerous_file: Path) -> None:
+        """--halt does not trigger on allowed codepoints."""
+        result = main(
+            [
+                "--halt",
+                "dangerous",
+                "--allow-codepoint",
+                "U+202E,U+202C",
+                str(dangerous_file),
+            ]
+        )
+        assert result == 0
+
+    def test_halt_reports_finding(
+        self,
+        dangerous_file: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--halt reports the triggering finding on stderr."""
+        main(["--halt", str(dangerous_file)])
+        err = capsys.readouterr().err
+        assert "DANGEROUS" in err
+
+
+class TestPipeModeStreaming:
+    """Tests for streaming pipe mode with --strip and --halt."""
+
+    def test_pipe_strip_all(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--strip all removes all non-ASCII from pipe output."""
+        stdin_from("caf\u00e9\n")
+        assert main(["--strip", "all", "-"]) == 1
+        assert capsys.readouterr().out == "caf\n"
+
+    def test_pipe_strip_dangerous(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--strip dangerous removes only dangerous chars."""
+        stdin_from("caf\u00e9 x\u202ey\n")
+        assert main(["--strip", "dangerous", "-"]) == 1
+        captured = capsys.readouterr()
+        assert "\u00e9" in captured.out
+        assert "\u202e" not in captured.out
+
+    def test_pipe_fix_strip_combined(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--fix --strip all: fix fixable, strip the rest."""
+        stdin_from("caf\u00e9 said \u201chi\u201d\n")
+        assert main(["--fix", "--strip", "all", "-"]) == 1
+        assert capsys.readouterr().out == 'caf said "hi"\n'
+
+    def test_pipe_halt_dangerous(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--halt dangerous stops on dangerous char, no stdout for that line."""
+        stdin_from("line1\nx\u202ey\nline3\n")
+        assert main(["--halt", "-"]) == 1
+        captured = capsys.readouterr()
+        assert "line1\n" in captured.out
+        assert "\u202e" not in captured.out
+        assert "line3" not in captured.out
+        assert "DANGEROUS" in captured.err
+
+    def test_pipe_halt_all(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--halt all stops on any non-ASCII."""
+        stdin_from("clean\ncaf\u00e9\nmore\n")
+        assert main(["--halt", "all", "-"]) == 1
+        captured = capsys.readouterr()
+        assert "clean\n" in captured.out
+        assert "\u00e9" not in captured.out
+
+    def test_pipe_fix_halt_dangerous(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--fix --halt: fix fixable, halt on dangerous."""
+        stdin_from("\u201chi\u201d\nx\u202ey\n")
+        assert main(["--fix", "--halt", "-"]) == 1
+        captured = capsys.readouterr()
+        assert '"hi"' in captured.out
+        assert "\u202e" not in captured.out
+
+    def test_pipe_context_display(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Pipe mode shows context lines with caret markers."""
+        stdin_from("x\u202ey\n")
+        main(["-"])
+        err = capsys.readouterr().err
+        assert "<U+202E>" in err
+        assert "!" in err
+
+    def test_pipe_summary_after_stream(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Pipe mode prints summary line after stdin exhausted."""
+        stdin_from("\u201chello\u201d\n")
+        main(["-"])
+        err = capsys.readouterr().err
+        assert "Found" in err
+        assert "non-ASCII" in err
+
+    def test_pipe_strip_respects_allow(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--strip all with --allow-codepoint preserves allowed."""
+        stdin_from("caf\u00e9\n")
+        assert main(["--strip", "all", "--allow-codepoint", "U+00E9", "-"]) == 0
+        assert capsys.readouterr().out == "caf\u00e9\n"
+
+    def test_pipe_halt_respects_allow(
+        self,
+        stdin_from: Callable[[str], None],
+    ) -> None:
+        """--halt dangerous with allowed bidi char does not halt."""
+        stdin_from("x\u202ey\n")
+        result = main(
+            [
+                "--halt",
+                "dangerous",
+                "--allow-codepoint",
+                "U+202E,U+202C",
+                "-",
+            ]
+        )
+        assert result == 0
+
+
+class TestFlagInteractionsWithConfig:
+    """Tests for action flag interactions with config/overrides."""
+
+    def test_strip_with_config_allow_codepoints(self, tmp_path: Path) -> None:
+        """Config allow-codepoints are respected by --strip."""
+        config = tmp_path / "config.toml"
+        config.write_text('allow-codepoints = ["U+00E9"]\n', encoding="utf-8")
+        f = tmp_path / "test.txt"
+        f.write_text("caf\u00e9 na\u00efve\n", encoding="utf-8")
+        main(["--config", str(config), "--strip", "all", str(f)])
+        content = f.read_text(encoding="utf-8")
+        assert "\u00e9" in content
+        assert "\u00ef" not in content
+
+    def test_strip_with_override_allow(self, tmp_path: Path) -> None:
+        """Per-file override allow-lists are respected by --strip."""
+        config = tmp_path / "config.toml"
+        config.write_text(
+            '[[overrides]]\nfiles = ["*.md"]\nallow-printable = true\n',
+            encoding="utf-8",
+        )
+        md = tmp_path / "doc.md"
+        md.write_text("caf\u00e9\n", encoding="utf-8")
+        py = tmp_path / "code.py"
+        py.write_text("caf\u00e9\n", encoding="utf-8")
+        main(["--config", str(config), "--strip", "all", str(md), str(py)])
+        assert "\u00e9" in md.read_text(encoding="utf-8")
+        assert "\u00e9" not in py.read_text(encoding="utf-8")
+
+    def test_halt_with_severity_warning(self, dangerous_file: Path) -> None:
+        """--halt still exits 1 regardless of --severity warning."""
+        result = main(["--severity", "warning", "--halt", str(dangerous_file)])
+        assert result == 1
+
+    def test_strip_with_severity_warning(self, accented_file: Path) -> None:
+        """--strip modifies file; exit 1 even with --severity warning."""
+        result = main(["--severity", "warning", "--strip", "all", str(accented_file)])
+        assert result == 1
+        assert "\u00e9" not in accented_file.read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize(
+        ("flags", "input_text", "expected_out"),
+        [
+            (["--fix"], "\u201chi\u201d\n", '"hi"\n'),
+            (["--strip", "all"], "caf\u00e9\n", "caf\n"),
+            (["--fix", "--strip", "all"], "caf\u00e9 \u201chi\u201d\n", 'caf "hi"\n'),
+            (
+                ["--fix", "--strip", "dangerous"],
+                "\u201chi\u201d x\u202ey\n",
+                '"hi" xy\n',
+            ),
+            (
+                ["--strip", "dangerous"],
+                "caf\u00e9 x\u202ey\n",
+                "caf\u00e9 xy\n",
+            ),
+        ],
+        ids=[
+            "fix-only",
+            "strip-all",
+            "fix-strip-all",
+            "fix-strip-dangerous",
+            "strip-dangerous-only",
+        ],
+    )
+    def test_pipe_flag_combinations(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+        flags: list[str],
+        input_text: str,
+        expected_out: str,
+    ) -> None:
+        """Parametrized test of flag combinations in pipe mode."""
+        stdin_from(input_text)
+        main([*flags, "-"])
+        assert capsys.readouterr().out == expected_out
+
+    def test_quiet_flag_with_strip(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--quiet suppresses per-finding output in pipe mode."""
+        stdin_from("caf\u00e9\n")
+        main(["--quiet", "--strip", "all", "-"])
+        err = capsys.readouterr().err
+        assert "Found" in err
+        assert "U+00E9" not in err.split("Found")[0]
+
+    def test_no_color_with_halt(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--no-color works with --halt."""
+        stdin_from("x\u202ey\n")
+        main(["--no-color", "--halt", "-"])
+        err = capsys.readouterr().err
+        assert "\033[" not in err
+        assert "DANGEROUS" in err

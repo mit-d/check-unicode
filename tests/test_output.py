@@ -14,8 +14,10 @@ from check_unicode.output import (
     _build_caret_line,
     _compact_ranges,
     _format_codepoint_entry,
+    _print_file_findings,
     _use_color,
     print_findings,
+    print_line_findings,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -343,3 +345,104 @@ class TestPrintFindings:
         print_findings(findings, no_color=True)
         err = capsys.readouterr().err
         assert "(x10)" in err
+
+
+class TestPrintFileFindingsWithText:
+    """Tests for _print_file_findings with pre-supplied text."""
+
+    def test_stdin_context_display(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Findings for <stdin> show context when text is provided."""
+        text = "x\u202ey\n"
+        findings = [
+            Finding(
+                file="<stdin>",
+                line=1,
+                col=2,
+                char="\u202e",
+                codepoint=0x202E,
+                name="RIGHT-TO-LEFT OVERRIDE",
+                category="Cf",
+                dangerous=True,
+            ),
+        ]
+        _print_file_findings("<stdin>", findings, color=False, text=text)
+        err = capsys.readouterr().err
+        assert "<U+202E>" in err
+        assert "!" in err
+
+    def test_stdin_no_text_no_context(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Without text param, <stdin> findings lack context."""
+        findings = [
+            Finding(
+                file="<stdin>",
+                line=1,
+                col=2,
+                char="\u202e",
+                codepoint=0x202E,
+                name="RIGHT-TO-LEFT OVERRIDE",
+                category="Cf",
+                dangerous=True,
+            ),
+        ]
+        _print_file_findings("<stdin>", findings, color=False)
+        err = capsys.readouterr().err
+        assert "U+202E" in err
+        assert "<U+202E>" not in err
+
+
+class TestPrintLineFindings:
+    """Tests for per-line finding output in pipe mode."""
+
+    def test_single_line_output(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """print_line_findings emits context for one line."""
+        line = "x\u202ey"
+        findings = [
+            Finding(
+                file="<stdin>",
+                line=5,
+                col=2,
+                char="\u202e",
+                codepoint=0x202E,
+                name="RIGHT-TO-LEFT OVERRIDE",
+                category="Cf",
+                dangerous=True,
+            ),
+        ]
+        print_line_findings("<stdin>", 5, line, findings, no_color=True)
+        err = capsys.readouterr().err
+        assert "<stdin>:5:" in err
+        assert "<U+202E>" in err
+        assert "!" in err
+        assert "U+202E" in err
+
+    def test_multiple_findings_same_line(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Multiple findings on one line all appear."""
+        line = "\u201chello\u201d"
+        findings = [
+            Finding(
+                file="<stdin>",
+                line=1,
+                col=1,
+                char="\u201c",
+                codepoint=0x201C,
+                name="LEFT DOUBLE QUOTATION MARK",
+                category="Pi",
+                dangerous=False,
+            ),
+            Finding(
+                file="<stdin>",
+                line=1,
+                col=8,
+                char="\u201d",
+                codepoint=0x201D,
+                name="RIGHT DOUBLE QUOTATION MARK",
+                category="Pf",
+                dangerous=False,
+            ),
+        ]
+        print_line_findings("<stdin>", 1, line, findings, no_color=True)
+        err = capsys.readouterr().err
+        assert "U+201C" in err
+        assert "U+201D" in err

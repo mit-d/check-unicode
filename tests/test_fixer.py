@@ -8,10 +8,56 @@ from unittest.mock import patch
 
 import pytest
 
-from check_unicode.fixer import fix_file
+from check_unicode.checker import AllowConfig
+from check_unicode.fixer import fix_file, strip_text
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+class TestStripText:
+    """Tests for strip_text() character removal."""
+
+    @pytest.mark.parametrize(
+        ("level", "input_text", "expected"),
+        [
+            ("all", "caf\u00e9\n", "caf\n"),
+            ("all", "He said \u201chello\u201d\n", "He said hello\n"),
+            ("dangerous", "caf\u00e9\n", "caf\u00e9\n"),
+            ("dangerous", "x\u202ey\n", "xy\n"),
+            ("dangerous", "a\u200bb\n", "ab\n"),
+            ("all", "hello world\n", "hello world\n"),
+            ("dangerous", "hello world\n", "hello world\n"),
+            ("all", "", ""),
+        ],
+        ids=[
+            "all-accented",
+            "all-smart-quotes",
+            "dangerous-keeps-accented",
+            "dangerous-strips-bidi",
+            "dangerous-strips-zwsp",
+            "all-clean-passthrough",
+            "dangerous-clean-passthrough",
+            "all-empty",
+        ],
+    )
+    def test_strip_text(self, level: str, input_text: str, expected: str) -> None:
+        """strip_text removes characters based on level."""
+        assert strip_text(input_text, level=level) == expected
+
+    def test_strip_text_respects_allowed(self) -> None:
+        """Allowed codepoints are never stripped."""
+        text = "caf\u00e9 x\u202ey\n"
+        allow = AllowConfig(codepoints=frozenset({0x00E9}))
+        result = strip_text(text, level="all", allow=allow)
+        assert result == "caf\u00e9 xy\n"
+
+    def test_strip_dangerous_respects_allowed(self) -> None:
+        """Explicitly allowed dangerous codepoints are not stripped."""
+        text = "x\u202ey\n"
+        allow = AllowConfig(codepoints=frozenset({0x202E}))
+        result = strip_text(text, level="dangerous", allow=allow)
+        assert result == "x\u202ey\n"
 
 
 class TestSmartQuoteReplacement:
