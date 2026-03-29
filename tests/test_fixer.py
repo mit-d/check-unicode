@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from check_unicode.checker import AllowConfig
-from check_unicode.fixer import fix_file, strip_text
+from check_unicode.fixer import fix_file, fix_text, strip_file, strip_text
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -59,77 +59,156 @@ class TestStripText:
         result = strip_text(text, level="dangerous", allow=allow)
         assert result == "x\u202ey\n"
 
+    def test_multiline_strips_across_lines(self) -> None:
+        """Non-ASCII chars on different lines are all stripped."""
+        text = "caf\u00e9\nhello\u2026\nworld\u2014end\n"
+        result = strip_text(text, level="all")
+        assert result == "caf\nhello\nworldend\n"
 
-class TestSmartQuoteReplacement:
-    """Tests for smart quote to ASCII replacement."""
+    def test_multiple_dangerous_chars_stripped(self) -> None:
+        """Multiple different dangerous chars are all stripped in dangerous mode."""
+        # ZWSP + bidi override + zero-width non-joiner
+        text = "a\u200bb\u202ec\u200cd\n"
+        result = strip_text(text, level="dangerous")
+        assert result == "abcd\n"
 
-    def test_replaces_smart_double_quotes(self, tmp_path: Path) -> None:
-        """Smart double quotes are replaced with straight double quotes."""
-        f = tmp_path / "quotes.txt"
-        f.write_text("He said \u201chello\u201d\n", encoding="utf-8")
+    def test_all_level_strips_dangerous_chars(self) -> None:
+        """Level 'all' strips dangerous chars as well as non-dangerous non-ASCII."""
+        text = "x\u200by\u202ez\n"
+        result = strip_text(text, level="all")
+        assert result == "xyz\n"
+
+    def test_allow_printable_preserves_printable(self) -> None:
+        """Allow printable=True keeps printable non-ASCII but still strips dangerous."""
+        text = "caf\u00e9 x\u200by\n"
+        allow = AllowConfig(printable=True)
+        result = strip_text(text, level="all", allow=allow)
+        # e-acute is printable -> kept; ZWSP is dangerous -> stripped
+        assert result == "caf\u00e9 xy\n"
+
+    def test_allow_range_preserves_chars_in_range(self) -> None:
+        """Chars within an allowed range are not stripped."""
+        # Allow Latin-1 Supplement range (U+00C0 to U+00FF)
+        text = "caf\u00e9 na\u00efve\n"
+        allow = AllowConfig(ranges=((0x00C0, 0x00FF),))
+        result = strip_text(text, level="all", allow=allow)
+        assert result == "caf\u00e9 na\u00efve\n"
+
+    def test_allow_script_preserves_chars_in_script(self) -> None:
+        """Chars belonging to an allowed script are not stripped."""
+        # Greek capital letter sigma
+        text = "sum=\u03a3\n"
+        allow = AllowConfig(scripts=frozenset({"Greek"}))
+        result = strip_text(text, level="all", allow=allow)
+        assert result == "sum=\u03a3\n"
+
+
+class TestFixText:
+    """Tests for fix_text() pure string replacement."""
+
+    @pytest.mark.parametrize(
+        ("input_text", "expected"),
+        [
+            ("\u201chello\u201d", '"hello"'),
+            ("It\u2019s", "It's"),
+            ("\u2018word\u2019", "'word'"),
+            ("\u201aquote\u201b", "'quote'"),
+            ("\u201equote\u201f", '"quote"'),
+            ("\u00abguillemet\u00bb", '"guillemet"'),
+            ("\u2039angle\u203a", "'angle'"),
+            ("word\u2014word", "word--word"),
+            ("1\u20132", "1--2"),
+            ("x \u2212 y", "x - y"),
+            ("hello\u00a0world", "hello world"),
+            ("a\u2003b", "a b"),
+            ("a\u2009b", "a b"),
+            ("a\u200ab", "a b"),
+            ("a\u3000b", "a b"),
+            ("wait\u2026", "wait..."),
+        ],
+        ids=[
+            "smart-double-quotes",
+            "right-single-quote",
+            "left-right-single-quotes",
+            "low9-highrev9-single-quotes",
+            "low9-highrev9-double-quotes",
+            "guillemets",
+            "angle-quotes",
+            "em-dash",
+            "en-dash",
+            "minus-sign",
+            "nbsp",
+            "em-space",
+            "thin-space",
+            "hair-space",
+            "ideographic-space",
+            "ellipsis",
+        ],
+    )
+    def test_fix_replaces_character(self, input_text: str, expected: str) -> None:
+        """fix_text replaces known non-ASCII chars with ASCII equivalents."""
+        assert fix_text(input_text) == expected
+
+    def test_clean_text_unchanged(self) -> None:
+        """Plain ASCII text passes through unchanged."""
+        text = "hello world 123 !@#$%\n"
+        assert fix_text(text) == text
+
+    def test_dangerous_chars_unchanged(self) -> None:
+        """Dangerous invisible chars are never replaced by fix_text."""
+        text = "a\u200bb\u202ec\n"
+        assert fix_text(text) == text
+
+    def test_mixed_fixable_nonfixable_dangerous(self) -> None:
+        """Only fixable chars are replaced; non-fixable and dangerous are kept."""
+        # e-acute (non-fixable), smart quote (fixable), ZWSP (dangerous)
+        text = "caf\u00e9 \u201chi\u201d a\u200bb\n"
+        result = fix_text(text)
+        assert result == 'caf\u00e9 "hi" a\u200bb\n'
+
+    def test_multiline_text(self) -> None:
+        """fix_text handles multi-line strings correctly."""
+        text = "line1 \u201chi\u201d\nline2 word\u2014word\nline3 wait\u2026\n"
+        expected = 'line1 "hi"\nline2 word--word\nline3 wait...\n'
+        assert fix_text(text) == expected
+
+
+class TestFixFileReplacements:
+    """Tests for fix_file() character replacements via atomic write."""
+
+    @pytest.mark.parametrize(
+        ("input_text", "expected"),
+        [
+            ("\u201chello\u201d", '"hello"'),
+            ("It\u2019s", "It's"),
+            ("\u2018word\u2019", "'word'"),
+            ("word\u2014word", "word--word"),
+            ("1\u20132", "1--2"),
+            ("x \u2212 y", "x - y"),
+            ("hello\u00a0world", "hello world"),
+            ("a\u2003b", "a b"),
+            ("wait\u2026", "wait..."),
+        ],
+        ids=[
+            "smart-double-quotes",
+            "right-single-quote",
+            "left-right-single-quotes",
+            "em-dash",
+            "en-dash",
+            "minus-sign",
+            "nbsp",
+            "em-space",
+            "ellipsis",
+        ],
+    )
+    def test_fix_replaces_character(
+        self, tmp_path: Path, input_text: str, expected: str
+    ) -> None:
+        """fix_file replaces known non-ASCII chars and returns True."""
+        f = tmp_path / "test.txt"
+        f.write_text(input_text + "\n", encoding="utf-8")
         assert fix_file(f) is True
-        assert f.read_text(encoding="utf-8") == 'He said "hello"\n'
-
-    def test_replaces_smart_single_quotes(self, tmp_path: Path) -> None:
-        """Smart single quotes are replaced with straight apostrophes."""
-        f = tmp_path / "quotes.txt"
-        f.write_text("It\u2019s fine\n", encoding="utf-8")
-        assert fix_file(f) is True
-        assert f.read_text(encoding="utf-8") == "It's fine\n"
-
-
-class TestDashReplacement:
-    """Tests for dash and minus sign replacement."""
-
-    def test_replaces_em_dash(self, tmp_path: Path) -> None:
-        """Em dashes are replaced with double hyphens."""
-        f = tmp_path / "dashes.txt"
-        f.write_text("word\u2014word\n", encoding="utf-8")
-        assert fix_file(f) is True
-        assert f.read_text(encoding="utf-8") == "word--word\n"
-
-    def test_replaces_en_dash(self, tmp_path: Path) -> None:
-        """En dashes are replaced with double hyphens."""
-        f = tmp_path / "dashes.txt"
-        f.write_text("1\u20132\n", encoding="utf-8")
-        assert fix_file(f) is True
-        assert f.read_text(encoding="utf-8") == "1--2\n"
-
-    def test_replaces_minus_sign(self, tmp_path: Path) -> None:
-        """Unicode minus signs are replaced with ASCII hyphens."""
-        f = tmp_path / "minus.txt"
-        f.write_text("x \u2212 y\n", encoding="utf-8")
-        assert fix_file(f) is True
-        assert f.read_text(encoding="utf-8") == "x - y\n"
-
-
-class TestSpaceReplacement:
-    """Tests for non-breaking and special space replacement."""
-
-    def test_replaces_nbsp(self, tmp_path: Path) -> None:
-        """Non-breaking spaces are replaced with regular spaces."""
-        f = tmp_path / "spaces.txt"
-        f.write_text("hello\u00a0world\n", encoding="utf-8")
-        assert fix_file(f) is True
-        assert f.read_text(encoding="utf-8") == "hello world\n"
-
-    def test_replaces_em_space(self, tmp_path: Path) -> None:
-        """Em spaces are replaced with regular spaces."""
-        f = tmp_path / "spaces.txt"
-        f.write_text("a\u2003b\n", encoding="utf-8")
-        assert fix_file(f) is True
-        assert f.read_text(encoding="utf-8") == "a b\n"
-
-
-class TestEllipsis:
-    """Tests for ellipsis character replacement."""
-
-    def test_replaces_ellipsis(self, tmp_path: Path) -> None:
-        """Unicode ellipsis is replaced with three dots."""
-        f = tmp_path / "ellipsis.txt"
-        f.write_text("wait\u2026\n", encoding="utf-8")
-        assert fix_file(f) is True
-        assert f.read_text(encoding="utf-8") == "wait...\n"
+        assert f.read_text(encoding="utf-8") == expected + "\n"
 
 
 class TestDangerousCharsNotFixed:
@@ -161,10 +240,56 @@ class TestNoOpOnClean:
 
     def test_no_replacement_chars_unchanged(self, tmp_path: Path) -> None:
         """Characters without replacement mappings are left untouched."""
-        # Characters with no entry in REPLACEMENT_TABLE
         f = tmp_path / "unknown.txt"
         f.write_text("caf\u00e9\n", encoding="utf-8")  # e-acute
         assert fix_file(f) is False
+
+
+class TestStripFile:
+    """Tests for strip_file() with atomic writes."""
+
+    def test_strip_file_removes_non_ascii(self, tmp_path: Path) -> None:
+        """strip_file removes non-ASCII characters and returns True."""
+        f = tmp_path / "strip.txt"
+        f.write_text("caf\u00e9\n", encoding="utf-8")
+        assert strip_file(f) is True
+        assert f.read_text(encoding="utf-8") == "caf\n"
+
+    def test_strip_file_clean_returns_false(self, tmp_path: Path) -> None:
+        """strip_file on a clean ASCII file returns False."""
+        f = tmp_path / "clean.txt"
+        f.write_text("hello world\n", encoding="utf-8")
+        assert strip_file(f) is False
+
+    def test_strip_file_preserves_permissions(self, tmp_path: Path) -> None:
+        """File permissions are preserved after stripping."""
+        f = tmp_path / "perms.txt"
+        f.write_text("caf\u00e9\n", encoding="utf-8")
+        f.chmod(0o755)
+        strip_file(f)
+        mode = stat.S_IMODE(f.stat().st_mode)
+        assert mode == 0o755
+
+    def test_strip_file_with_allow_config(self, tmp_path: Path) -> None:
+        """strip_file respects AllowConfig, keeping allowed codepoints."""
+        f = tmp_path / "allow.txt"
+        f.write_text("caf\u00e9 \u201chi\u201d\n", encoding="utf-8")
+        allow = AllowConfig(codepoints=frozenset({0x00E9}))
+        assert strip_file(f, allow=allow) is True
+        assert f.read_text(encoding="utf-8") == "caf\u00e9 hi\n"
+
+    def test_strip_file_dangerous_level(self, tmp_path: Path) -> None:
+        """strip_file with level='dangerous' only removes dangerous chars."""
+        f = tmp_path / "danger.txt"
+        f.write_text("caf\u00e9 a\u200bb\n", encoding="utf-8")
+        assert strip_file(f, level="dangerous") is True
+        assert f.read_text(encoding="utf-8") == "caf\u00e9 ab\n"
+
+    def test_strip_file_binary_returns_false(self, tmp_path: Path) -> None:
+        """Binary files that fail UTF-8 decode return False."""
+        f = tmp_path / "binary.bin"
+        f.write_bytes(b"\x80\x81\xff")
+        assert strip_file(f) is False
 
 
 class TestAtomicWrite:

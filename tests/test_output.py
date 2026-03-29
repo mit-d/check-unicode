@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 from check_unicode.checker import Finding, check_file
 from check_unicode.output import (
@@ -21,6 +19,31 @@ from check_unicode.output import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _make_finding(
+    *,
+    col: int = 1,
+    char: str = "\u201c",
+    codepoint: int = 0x201C,
+    name: str = "LEFT DOUBLE QUOTATION MARK",
+    category: str = "Ps",
+    dangerous: bool = False,
+    confusable: str | None = None,
+    file: str = "t.txt",
+    line: int = 1,
+) -> Finding:
+    return Finding(
+        file=file,
+        line=line,
+        col=col,
+        char=char,
+        codepoint=codepoint,
+        name=name,
+        category=category,
+        dangerous=dangerous,
+        confusable=confusable,
+    )
 
 
 class TestUseColor:
@@ -63,90 +86,84 @@ class TestCompactRanges:
         """Two non-consecutive lines shown comma-separated."""
         assert _compact_ranges([3, 7]) == "3,7"
 
+    def test_two_consecutive(self) -> None:
+        """Two consecutive lines collapsed into a range."""
+        assert _compact_ranges([5, 6]) == "5-6"
+
+    def test_large_gap(self) -> None:
+        """Large gap between lines shown comma-separated."""
+        assert _compact_ranges([1, 1000]) == "1,1000"
+
+    def test_single_element_list(self) -> None:
+        """Single element list returns that element as string."""
+        assert _compact_ranges([42]) == "42"
+
 
 class TestBuildCaretLine:
     """Tests for caret line construction."""
 
-    def test_single_finding(self) -> None:
-        """Single finding produces one caret at correct position."""
-        line = "He said \u201chello\u201d"
-        findings = [
-            Finding(
-                file="t.txt",
-                line=1,
-                col=9,
-                char="\u201c",
-                codepoint=0x201C,
-                name="LEFT DOUBLE QUOTATION MARK",
-                category="Ps",
-                dangerous=False,
+    @pytest.mark.parametrize(
+        ("line_text", "finding", "expected_marker", "absent_marker"),
+        [
+            (
+                "He said \u201chello\u201d",
+                _make_finding(col=9),
+                "^",
+                None,
             ),
-        ]
-        caret = _build_caret_line(line, findings)
-        assert caret == "        ^"
-
-    def test_dangerous_uses_exclamation(self) -> None:
-        """Dangerous findings marked with ! instead of ^."""
-        line = "x\u202ey"
-        findings = [
-            Finding(
-                file="t.txt",
-                line=1,
-                col=2,
-                char="\u202e",
-                codepoint=0x202E,
-                name="RIGHT-TO-LEFT OVERRIDE",
-                category="Cf",
-                dangerous=True,
+            (
+                "x\u202ey",
+                _make_finding(
+                    col=2,
+                    char="\u202e",
+                    codepoint=0x202E,
+                    name="RIGHT-TO-LEFT OVERRIDE",
+                    category="Cf",
+                    dangerous=True,
+                ),
+                "!",
+                "^",
             ),
-        ]
-        caret = _build_caret_line(line, findings)
-        assert "!" in caret
-        assert "^" not in caret
-
-    def test_confusable_uses_question(self) -> None:
-        """Confusable findings marked with ? instead of ^."""
-        line = "p\u0430ssword"
-        findings = [
-            Finding(
-                file="t.txt",
-                line=1,
-                col=2,
-                char="\u0430",
-                codepoint=0x0430,
-                name="CYRILLIC SMALL LETTER A",
-                category="Ll",
-                dangerous=False,
-                confusable="a",
+            (
+                "p\u0430ssword",
+                _make_finding(
+                    col=2,
+                    char="\u0430",
+                    codepoint=0x0430,
+                    name="CYRILLIC SMALL LETTER A",
+                    category="Ll",
+                    confusable="a",
+                ),
+                "?",
+                "^",
             ),
-        ]
-        caret = _build_caret_line(line, findings)
-        assert "?" in caret
-        assert "^" not in caret
+        ],
+        ids=["normal-caret", "dangerous-exclamation", "confusable-question"],
+    )
+    def test_marker_type(
+        self,
+        line_text: str,
+        finding: Finding,
+        expected_marker: str,
+        absent_marker: str | None,
+    ) -> None:
+        """Correct marker character used for each finding severity."""
+        caret = _build_caret_line(line_text, [finding])
+        assert expected_marker in caret
+        if absent_marker is not None:
+            assert absent_marker not in caret
 
     def test_multiple_findings_on_line(self) -> None:
         """Multiple findings produce multiple carets."""
         line = "\u201chello\u201d"
         findings = [
-            Finding(
-                file="t.txt",
-                line=1,
-                col=1,
-                char="\u201c",
-                codepoint=0x201C,
-                name="LEFT DOUBLE QUOTATION MARK",
-                category="Ps",
-                dangerous=False,
-            ),
-            Finding(
-                file="t.txt",
-                line=1,
+            _make_finding(col=1),
+            _make_finding(
                 col=7,
                 char="\u201d",
                 codepoint=0x201D,
                 name="RIGHT DOUBLE QUOTATION MARK",
                 category="Pe",
-                dangerous=False,
             ),
         ]
         caret = _build_caret_line(line, findings)
@@ -156,9 +173,7 @@ class TestBuildCaretLine:
         """Caret position accounts for <U+XXXX> expansion of invisible chars."""
         line = "a\u200bb"  # ZWS between a and b
         findings = [
-            Finding(
-                file="t.txt",
-                line=1,
+            _make_finding(
                 col=2,
                 char="\u200b",
                 codepoint=0x200B,
@@ -171,23 +186,21 @@ class TestBuildCaretLine:
         # 'a' is at position 0, ZWS renders as <U+200B> starting at position 1
         assert caret == " !"
 
+    def test_finding_at_column_one(self) -> None:
+        """Finding at column 1 produces marker at start of caret line."""
+        line = "\u201chello"
+        findings = [_make_finding(col=1)]
+        caret = _build_caret_line(line, findings)
+        assert caret.startswith("^")
+        assert caret == "^"
+
 
 class TestFormatCodepointEntry:
     """Tests for codepoint listing entry formatting."""
 
     def test_normal_no_color(self) -> None:
         """Normal finding formatted with codepoint, name, and category."""
-        finding = Finding(
-            file="t.txt",
-            line=1,
-            col=1,
-            char="\u201c",
-            codepoint=0x201C,
-            name="LEFT DOUBLE QUOTATION MARK",
-            category="Ps",
-            dangerous=False,
-        )
-        result = _format_codepoint_entry(finding, 1, color=False)
+        result = _format_codepoint_entry(_make_finding(), 1, color=False)
         assert "U+201C" in result
         assert "LEFT DOUBLE QUOTATION MARK" in result
         assert "[Ps]" in result
@@ -195,25 +208,18 @@ class TestFormatCodepointEntry:
 
     def test_count_shown(self) -> None:
         """Count > 1 shows (xN) suffix."""
-        finding = Finding(
-            file="t.txt",
-            line=1,
-            col=1,
+        finding = _make_finding(
             char="\u2500",
             codepoint=0x2500,
             name="BOX DRAWINGS LIGHT HORIZONTAL",
             category="So",
-            dangerous=False,
         )
         result = _format_codepoint_entry(finding, 98, color=False)
         assert "(x98)" in result
 
     def test_dangerous_prefix(self) -> None:
         """Dangerous findings prefixed with ! [DANGEROUS]."""
-        finding = Finding(
-            file="t.txt",
-            line=1,
-            col=1,
+        finding = _make_finding(
             char="\u202e",
             codepoint=0x202E,
             name="RIGHT-TO-LEFT OVERRIDE",
@@ -225,15 +231,11 @@ class TestFormatCodepointEntry:
 
     def test_confusable_prefix(self) -> None:
         """Confusable findings prefixed with ? [CONFUSABLE]."""
-        finding = Finding(
-            file="t.txt",
-            line=1,
-            col=1,
+        finding = _make_finding(
             char="\u0430",
             codepoint=0x0430,
             name="CYRILLIC SMALL LETTER A",
             category="Ll",
-            dangerous=False,
             confusable="a",
         )
         result = _format_codepoint_entry(finding, 1, color=False)
@@ -241,10 +243,7 @@ class TestFormatCodepointEntry:
 
     def test_dangerous_with_color(self) -> None:
         """Dangerous findings use bold red ANSI codes."""
-        finding = Finding(
-            file="t.txt",
-            line=1,
-            col=1,
+        finding = _make_finding(
             char="\u202e",
             codepoint=0x202E,
             name="RIGHT-TO-LEFT OVERRIDE",
@@ -261,16 +260,7 @@ class TestPrintFindings:
 
     def test_context_file_read_failure(self) -> None:
         """Findings referencing nonexistent files don't crash."""
-        finding = Finding(
-            file="/nonexistent/file.txt",
-            line=1,
-            col=1,
-            char="\u201c",
-            codepoint=0x201C,
-            name="LEFT DOUBLE QUOTATION MARK",
-            category="Ps",
-            dangerous=False,
-        )
+        finding = _make_finding(file="/nonexistent/file.txt")
         # Should not raise
         print_findings([finding], no_color=True)
 
@@ -294,7 +284,6 @@ class TestPrintFindings:
         findings = check_file(str(f))
         print_findings(findings, no_color=True)
         err = capsys.readouterr().err
-        # Should have caret markers
         assert "^" in err
 
     def test_grouped_codepoint_listing(
@@ -326,12 +315,10 @@ class TestPrintFindings:
     ) -> None:
         """Identical context lines are shown only once."""
         f = tmp_path / "test.txt"
-        # Write 5 identical lines with same non-ASCII char
         f.write_text("\u2500\u2500\u2500\n" * 5, encoding="utf-8")
         findings = check_file(str(f))
         print_findings(findings, no_color=True)
         err = capsys.readouterr().err
-        # The context line should appear only once despite 5 source lines
         rendered_line = "\u2500\u2500\u2500"
         assert err.count(f"  {rendered_line}") == 1
 
@@ -347,6 +334,45 @@ class TestPrintFindings:
         assert "(x10)" in err
 
 
+class TestPrintFindingsEdgeCases:
+    """Edge case tests for print_findings."""
+
+    def test_empty_findings_only_summary(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Empty findings list produces only a zero-count summary."""
+        print_findings([], no_color=True)
+        err = capsys.readouterr().err
+        assert "Found 0 non-ASCII characters in 0 files" in err
+        # No file headers or codepoint listings
+        assert "U+" not in err
+
+    def test_summary_line_counts(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Summary line shows correct character, file, and fixable counts."""
+        f = tmp_path / "test.txt"
+        f.write_text("He said \u201chello\u201d\n", encoding="utf-8")
+        findings = check_file(str(f))
+        print_findings(findings, no_color=True)
+        err = capsys.readouterr().err
+        assert "Found 2 non-ASCII characters" in err
+        assert "in 1 file" in err
+        assert "2 fixable" in err
+
+    def test_summary_singular_forms(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Single finding uses singular 'character' and 'file'."""
+        f = tmp_path / "test.txt"
+        f.write_text("He said \u201chello\n", encoding="utf-8")
+        findings = check_file(str(f))
+        print_findings(findings, no_color=True)
+        err = capsys.readouterr().err
+        assert "Found 1 non-ASCII character " in err
+        assert "in 1 file " in err
+
+
 class TestPrintFileFindingsWithText:
     """Tests for _print_file_findings with pre-supplied text."""
 
@@ -354,9 +380,8 @@ class TestPrintFileFindingsWithText:
         """Findings for <stdin> show context when text is provided."""
         text = "x\u202ey\n"
         findings = [
-            Finding(
+            _make_finding(
                 file="<stdin>",
-                line=1,
                 col=2,
                 char="\u202e",
                 codepoint=0x202E,
@@ -373,9 +398,8 @@ class TestPrintFileFindingsWithText:
     def test_stdin_no_text_no_context(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Without text param, <stdin> findings lack context."""
         findings = [
-            Finding(
+            _make_finding(
                 file="<stdin>",
-                line=1,
                 col=2,
                 char="\u202e",
                 codepoint=0x202E,
@@ -397,7 +421,7 @@ class TestPrintLineFindings:
         """print_line_findings emits context for one line."""
         line = "x\u202ey"
         findings = [
-            Finding(
+            _make_finding(
                 file="<stdin>",
                 line=5,
                 col=2,
@@ -421,25 +445,17 @@ class TestPrintLineFindings:
         """Multiple findings on one line all appear."""
         line = "\u201chello\u201d"
         findings = [
-            Finding(
+            _make_finding(
                 file="<stdin>",
-                line=1,
-                col=1,
-                char="\u201c",
-                codepoint=0x201C,
-                name="LEFT DOUBLE QUOTATION MARK",
                 category="Pi",
-                dangerous=False,
             ),
-            Finding(
+            _make_finding(
                 file="<stdin>",
-                line=1,
                 col=8,
                 char="\u201d",
                 codepoint=0x201D,
                 name="RIGHT DOUBLE QUOTATION MARK",
                 category="Pf",
-                dangerous=False,
             ),
         ]
         print_line_findings("<stdin>", 1, line, findings, no_color=True)

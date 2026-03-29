@@ -19,6 +19,7 @@ from check_unicode.main import (
     _build_parser,
     _file_matches_override,
     _is_excluded,
+    _preprocess_argv,
     _resolve_allow_for_file,
     _resolve_file_settings,
     main,
@@ -75,21 +76,19 @@ def stdin_from(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
 class TestExitCodes:
     """Tests for CLI exit code behavior."""
 
-    def test_clean_file_exits_0(self) -> None:
-        """Clean files produce exit code 0."""
-        assert main([str(FIXTURES / "clean_ascii.txt")]) == 0
-
-    def test_dirty_file_exits_1(self) -> None:
-        """Files with non-ASCII characters produce exit code 1."""
-        assert main([str(FIXTURES / "smart_quotes.txt")]) == 1
-
-    def test_warning_severity_exits_0(self) -> None:
-        """Warning severity mode exits 0 even with findings."""
-        assert main(["--severity", "warning", str(FIXTURES / "smart_quotes.txt")]) == 0
-
-    def test_dangerous_file_exits_1(self) -> None:
-        """Files with dangerous characters produce exit code 1."""
-        assert main([str(FIXTURES / "bidi_attack.txt")]) == 1
+    @pytest.mark.parametrize(
+        ("args", "expected_code"),
+        [
+            ([str(FIXTURES / "clean_ascii.txt")], 0),
+            ([str(FIXTURES / "smart_quotes.txt")], 1),
+            (["--severity", "warning", str(FIXTURES / "smart_quotes.txt")], 0),
+            ([str(FIXTURES / "bidi_attack.txt")], 1),
+        ],
+        ids=["clean-exits-0", "dirty-exits-1", "warning-exits-0", "dangerous-exits-1"],
+    )
+    def test_exit_code(self, args: list[str], expected_code: int) -> None:
+        """Exit codes match expected values for different inputs."""
+        assert main(args) == expected_code
 
     def test_no_files_exits_error(self) -> None:
         """Providing no files causes argparse to exit with code 2."""
@@ -1022,25 +1021,23 @@ class TestPipeMode:
 
     def test_dash_clean_input_passes_through(
         self,
-        monkeypatch: pytest.MonkeyPatch,
+        stdin_from: Callable[[str], None],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Clean ASCII input is passed through to stdout unchanged, exit 0."""
-        monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"hello world\n")))
+        stdin_from("hello world\n")
         assert main(["-"]) == 0
         captured = capsys.readouterr()
         assert captured.out == "hello world\n"
 
     def test_dash_dirty_input_passes_through_with_findings(
         self,
-        monkeypatch: pytest.MonkeyPatch,
+        stdin_from: Callable[[str], None],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Non-ASCII input passes through to stdout, findings on stderr."""
         text = "He said \u201chello\u201d\n"
-        monkeypatch.setattr(
-            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
-        )
+        stdin_from(text)
         assert main(["-"]) == 1
         captured = capsys.readouterr()
         assert captured.out == text
@@ -1048,39 +1045,34 @@ class TestPipeMode:
 
     def test_dash_fix_mode_writes_fixed_to_stdout(
         self,
-        monkeypatch: pytest.MonkeyPatch,
+        stdin_from: Callable[[str], None],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Fix mode replaces smart quotes and writes fixed text to stdout."""
         text = "He said \u201chello\u201d\n"
-        monkeypatch.setattr(
-            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
-        )
+        stdin_from(text)
         assert main(["--fix", "-"]) == 1
         captured = capsys.readouterr()
         assert captured.out == 'He said "hello"\n'
 
     def test_dash_fix_mode_clean_input(
         self,
-        monkeypatch: pytest.MonkeyPatch,
+        stdin_from: Callable[[str], None],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Fix mode with clean input passes through unchanged, exit 0."""
-        monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"clean\n")))
+        stdin_from("clean\n")
         assert main(["--fix", "-"]) == 0
         captured = capsys.readouterr()
         assert captured.out == "clean\n"
 
     def test_dash_fix_mode_dangerous_still_reported(
         self,
-        monkeypatch: pytest.MonkeyPatch,
+        stdin_from: Callable[[str], None],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Fix mode preserves dangerous chars in output and stderr."""
-        text = "x\u202ey\n"
-        monkeypatch.setattr(
-            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
-        )
+        stdin_from("x\u202ey\n")
         result = main(["--fix", "-"])
         assert result == 1
         captured = capsys.readouterr()
@@ -1090,28 +1082,23 @@ class TestPipeMode:
 
     def test_dash_with_allow_flags(
         self,
-        monkeypatch: pytest.MonkeyPatch,
+        stdin_from: Callable[[str], None],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Allow flags work with pipe mode."""
         text = "72\u00b0F\n"
-        monkeypatch.setattr(
-            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
-        )
+        stdin_from(text)
         assert main(["--allow-codepoint", "U+00B0", "-"]) == 0
         captured = capsys.readouterr()
         assert captured.out == text
 
     def test_dash_filename_in_findings(
         self,
-        monkeypatch: pytest.MonkeyPatch,
+        stdin_from: Callable[[str], None],
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Findings use '<stdin>' as the filename."""
-        text = "\u201chello\u201d\n"
-        monkeypatch.setattr(
-            "sys.stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")))
-        )
+        stdin_from("\u201chello\u201d\n")
         main(["-"])
         captured = capsys.readouterr()
         assert "<stdin>" in captured.err
@@ -1427,6 +1414,138 @@ class TestPipeModeStreaming:
             ]
         )
         assert result == 0
+
+
+class TestPipeModeEdgeCases:
+    """Edge case tests for pipe mode."""
+
+    def test_pipe_empty_stdin(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Empty input should exit 0 and produce no stdout/stderr."""
+        stdin_from("")
+        assert main(["-"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_pipe_no_trailing_newline(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Input without trailing newline passes through without adding one."""
+        stdin_from("hello")
+        assert main(["-"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == "hello"
+
+    def test_pipe_halt_on_first_line(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--halt with dangerous char on line 1 should NOT write line 1 to stdout."""
+        stdin_from("x\u202ey\nline2\n")
+        assert main(["--halt", "-"]) == 1
+        captured = capsys.readouterr()
+        assert "\u202e" not in captured.out
+        assert "line2" not in captured.out
+
+    def test_pipe_multiline_summary_counts(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Multi-line input with findings on multiple lines; verify summary count."""
+        stdin_from("\u201ca\u201d\n\u201cb\u201d\n")
+        main(["-"])
+        err = capsys.readouterr().err
+        assert "Found" in err
+        # 4 smart quote chars total (2 per line)
+        assert "4" in err
+
+    def test_pipe_preserves_blank_lines(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Blank lines in input are preserved in output."""
+        stdin_from("a\n\nb\n")
+        assert main(["-"]) == 0
+        assert capsys.readouterr().out == "a\n\nb\n"
+
+    def test_pipe_strip_equals_syntax(
+        self,
+        stdin_from: Callable[[str], None],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """--strip=all works (equals syntax doesn't break preprocessing)."""
+        stdin_from("caf\u00e9\n")
+        assert main(["--strip=all", "-"]) == 1
+        assert capsys.readouterr().out == "caf\n"
+
+    def test_pipe_halt_clean_input_exits_0(
+        self,
+        stdin_from: Callable[[str], None],
+    ) -> None:
+        """--halt with clean input exits 0."""
+        stdin_from("hello world\n")
+        assert main(["--halt", "-"]) == 0
+
+
+class TestPreprocessArgv:
+    """Tests for _preprocess_argv optional-level flag rewriting."""
+
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            (["--strip", "test.txt"], ["--strip=all", "test.txt"]),
+            (["--strip", "dangerous", "test.txt"], ["--strip=dangerous", "test.txt"]),
+            (["--strip", "all", "test.txt"], ["--strip=all", "test.txt"]),
+            (["--halt", "test.txt"], ["--halt=dangerous", "test.txt"]),
+            (["--halt", "all", "test.txt"], ["--halt=all", "test.txt"]),
+            (["--halt", "dangerous", "test.txt"], ["--halt=dangerous", "test.txt"]),
+            (
+                ["--strip", "--halt", "test.txt"],
+                ["--strip=all", "--halt=dangerous", "test.txt"],
+            ),
+            (
+                ["--fix", "--strip", "test.txt"],
+                ["--fix", "--strip=all", "test.txt"],
+            ),
+            (
+                ["--strip", "all", "--halt", "dangerous", "test.txt"],
+                ["--strip=all", "--halt=dangerous", "test.txt"],
+            ),
+            (["test.txt"], ["test.txt"]),
+            ([], []),
+            (["--fix", "test.txt"], ["--fix", "test.txt"]),
+            (["-"], ["-"]),
+            (["--strip", "-"], ["--strip=all", "-"]),
+        ],
+        ids=[
+            "strip-no-level-defaults-all",
+            "strip-dangerous",
+            "strip-all-explicit",
+            "halt-no-level-defaults-dangerous",
+            "halt-all",
+            "halt-dangerous-explicit",
+            "strip-then-halt-no-levels",
+            "fix-then-strip",
+            "strip-all-halt-dangerous",
+            "no-flags",
+            "empty-args",
+            "unrelated-flag",
+            "dash-alone",
+            "strip-with-dash",
+        ],
+    )
+    def test_preprocess_argv(self, argv: list[str], expected: list[str]) -> None:
+        """_preprocess_argv correctly rewrites optional-level flags."""
+        assert _preprocess_argv(argv) == expected
 
 
 class TestFlagInteractionsWithConfig:
