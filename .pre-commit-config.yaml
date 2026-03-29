@@ -35,12 +35,14 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.19.1
+  - repo: local
     hooks:
-      - id: mypy
-        args: [--strict, src/]
+      - id: ty
+        name: ty check
+        entry: uvx ty check src/
+        language: system
         pass_filenames: false
+        always_run: true
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1
