@@ -29,13 +29,15 @@ urls.Repository = "https://github.com/mit-d/check-unicode"
 scripts.check-unicode = "check_unicode.main:main"
 
 [dependency-groups]
+# Exact pins: uv.lock is the single source of truth for tool versions used by
+# CI, pre-commit, and the Nix dev shell. Bump deliberately, not incidentally.
 dev = [
-  "bump-my-version",
-  "pytest",
-  "pytest-cov",
-  "pytest-sugar>=1.1.1",
-  "ruff",
-  "ty",
+  "bump-my-version==1.5",
+  "pytest==9.1.1",
+  "pytest-cov==7.1",
+  "pytest-sugar==1.1.1",
+  "ruff==0.16.1",
+  "ty==0.0.66",
 ]
 
 [tool.hatch]
@@ -50,6 +52,7 @@ indent-width = 4
 lint.select = [ "ALL" ]
 lint.ignore = [
   "COM812", # trailing comma -- conflicts with formatter
+  "CPY001", # per-file copyright headers; the MIT notice lives in LICENSE
   "D203",   # incompatible with D211 (no-blank-line-before-class)
   "D213",   # incompatible with D212 (multi-line-summary-first-line)
   "ISC001", # single-line implicit string concat -- conflicts with formatter
@@ -90,3 +93,6 @@ environment.extra-paths = [ "src" ]
 src.exclude = [ "tests/fixtures/" ]
 terminal.error-on-warning = true
 rules.all = "error"
+# `@typing.override` is 3.12+, and this is a zero-dependency project targeting
+# 3.11, so the decorator cannot be applied. Cannot satisfy this rule here.
+rules.missing-override-decorator = "ignore"

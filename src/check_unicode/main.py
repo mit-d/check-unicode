@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable
 
 from check_unicode import __version__
 from check_unicode.checker import AllowConfig, Finding, check_confusables, check_file
@@ -280,9 +280,9 @@ def _preprocess_argv(args: list[str]) -> list[str]:
 class _CheckUnicodeParser(argparse.ArgumentParser):
     """ArgumentParser that preprocesses optional-level flags."""
 
-    def parse_args(  # type: ignore[override]
+    def parse_args(
         self,
-        args: Sequence[str] | None = None,
+        args: Iterable[str] | None = None,
         namespace: argparse.Namespace | None = None,
     ) -> argparse.Namespace:
         if args is None:

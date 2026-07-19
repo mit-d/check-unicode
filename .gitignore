@@ -9,3 +9,8 @@ build/
 .ty/
 .ruff_cache/
 .coverage
+
+# Nix build outputs
+result
+result-*
+.direnv
