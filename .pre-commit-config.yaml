@@ -28,18 +28,26 @@ repos:
     hooks:
       - id: markdownlint-cli2
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.2
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
-
+  # Python tooling runs from uv.lock rather than from a mirror repo, so a
+  # version is never stated twice. --force-exclude makes ruff honour its
+  # pyproject excludes even for the filenames pre-commit passes explicitly.
   - repo: local
     hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run --frozen ruff check --force-exclude --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff-format
+        entry: uv run --frozen ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
       - id: ty
         name: ty check
-        entry: uvx ty check src/
+        entry: uv run --frozen ty check src/
         language: system
         pass_filenames: false
         always_run: true
@@ -63,6 +71,11 @@ repos:
     hooks:
       - id: check-unicode
         name: Check for uncommon Unicode characters
-        entry: .venv/bin/check-unicode
+        # Dogfood the working tree: the uv venv when there is one, otherwise the
+        # module directly (the nix dev shell puts src/ on PYTHONPATH).
+        entry: >-
+          sh -c 'if [ -x .venv/bin/check-unicode ]; then exec
+          .venv/bin/check-unicode "$@"; else exec python -m check_unicode "$@";
+          fi' --
         language: system
         types: [text]

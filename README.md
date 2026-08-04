@@ -30,6 +30,13 @@ pip install check-unicode
 check-unicode path/to/file.txt
 ```
 
+### Nix
+
+```bash
+nix run github:mit-d/check-unicode -- path/to/file.txt   # run without installing
+nix build github:mit-d/check-unicode                     # build the CLI
+```
+
 ## Usage
 
 ```text
@@ -136,8 +143,21 @@ Found 5 non-ASCII characters in 2 files (3 fixable, 1 dangerous)
 uv venv && uv sync --group dev
 .venv/bin/pytest -v --cov
 .venv/bin/ruff check src/ tests/
-uvx ty check src/
+uv run ty check src/
 ```
+
+Or with Nix. The dev shell builds ruff, ty, pytest, and bump-my-version from
+`uv.lock` via [uv2nix], so they are the exact versions CI and pre-commit use:
+
+```bash
+nix develop        # enter the dev shell (or `direnv allow` via .envrc)
+pytest --cov       # PYTHONPATH is pre-wired to src/
+ty check src/      # same pinned ty as CI
+pre-commit run -a  # the git hook is installed on first shell entry
+nix flake check    # tests, ruff lint + format, ty
+```
+
+[uv2nix]: https://github.com/pyproject-nix/uv2nix
 
 ## License
 

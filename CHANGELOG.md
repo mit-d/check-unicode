@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Nix flake: `nix run` the CLI, `nix build` the package (version read from
+  `__init__.py` so bump-my-version stays the single source of truth, man page
+  installed via `installShellFiles`), and `nix develop` for a dev shell.
+  `.envrc` (`use flake`) provided for direnv users.
+- Dev shell provides Python 3.11, uv, pre-commit, and the pinned dev tooling
+  (ruff, ty, pytest, bump-my-version), and pre-wires `PYTHONPATH` to `src/` so
+  the working tree is importable without an editable install.
+- That dev tooling, in the shell and in `nix flake check` alike, is built from
+  `uv.lock` with [uv2nix](https://github.com/pyproject-nix/uv2nix), so it is the
+  exact set of versions CI and pre-commit run and `flake.nix` never restates a
+  tool version. The shipped package remains a plain nixpkgs
+  `buildPythonApplication` -- the CLI has zero runtime dependencies, so there is
+  nothing there for the lock to pin.
+- Dev shell installs the pre-commit git hook on first entry, so `nix develop`
+  (or `direnv allow`) is the only setup step needed for commit-time checks. It
+  installs only when `.pre-commit-config.yaml` is in the current directory and
+  no `pre-commit` hook exists yet, so entering the shell from another repo
+  cannot touch that repo's hooks.
+- `nix flake check` gates the test suite, ruff lint and format, and ty. ty is
+  safe to gate because its version comes from `uv.lock` rather than nixpkgs.
+  Only pre-commit is excluded: it fetches its hook repos over the network, which
+  the build sandbox forbids, so it is provided in the dev shell instead.
+- `python -m check_unicode` now works as an alternative to the `check-unicode`
+  console script.
+
+### Changed
+
+- Dev dependencies are pinned exactly in `pyproject.toml` (`ruff==0.16.1`,
+  `ty==0.0.66`, `pytest==9.1.1`, `pytest-cov==7.1.0`, `pytest-sugar==1.1.1`,
+  `bump-my-version==1.5.0`), replacing unbounded specifiers. `uv.lock` is now
+  the single source of truth for tool versions.
+- CI and the pre-commit `ty` hook run `uv run ty` instead of `uvx ty@latest`, so
+  a ty release can no longer change what a green build means.
+- The `ruff` and `ruff-format` hooks run from `uv.lock` via `uv run --frozen`
+  instead of the `ruff-pre-commit` mirror, whose `rev` was a second place to
+  state the ruff version. Every tool version now appears exactly once. `uv` must
+  be on `PATH` for the hooks to run.
+- Ignore ruff `CPY001` (per-file copyright headers), newly stabilized in ruff
+  0.16 and picked up by `select = ["ALL"]`; the MIT notice lives in `LICENSE`.
+- The repo's own `check-unicode` pre-commit hook prefers
+  `.venv/bin/check-unicode` and falls back to `python -m check_unicode`, so it
+  dogfoods the working tree under both the uv and the Nix workflow (a Nix-only
+  checkout has no `.venv`).
+
 ## 0.6.0 - 2026-03-29
 
 ### Added

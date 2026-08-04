@@ -6,7 +6,22 @@ Thanks for your interest in contributing to `check-unicode`.
 
 ```bash
 uv venv && uv sync --group dev
+uvx pre-commit install
 ```
+
+Nix users get `pre-commit` in the dev shell, and the git hook is installed on
+first `nix develop` entry.
+
+## Tool versions
+
+`ruff`, `ty`, `pytest`, and `bump-my-version` are pinned exactly in
+`pyproject.toml`, and `uv.lock` is the single source of truth: CI, the
+pre-commit hooks, and the Nix dev shell all run those versions. Bumping one is a
+single edit plus `uv lock`.
+
+The ruff and ty hooks run through `uv run --frozen`, so `uv` has to be on `PATH`
+for `git commit` to work -- it is in the Nix dev shell, and part of the uv setup
+above otherwise.
 
 ## Before submitting a PR
 
@@ -15,7 +30,7 @@ uv venv && uv sync --group dev
    ```bash
    pytest --cov=check_unicode
    ruff check src/ tests/
-   uvx ty check src/
+   uv run ty check src/
    ```
 
 2. Add or update tests for any new behavior.
